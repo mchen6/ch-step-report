@@ -14,6 +14,8 @@ const isHistory = (h) => h === null || (isObject(h) && Number.isInteger(h.count)
 // only the guarantee that matters at its boundary: no e-mail address and no
 // display name ('@' or whitespace) can reach the report.
 const NOT_A_NAME_OR_ADDRESS = /^[^@\s]+$/;
+const isCoverage = (c) => isObject(c) && Number.isInteger(c.logsTruncated) && c.logsTruncated >= 0
+  && Array.isArray(c.logsUnavailable) && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && typeof u.job === 'string');
 const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && Array.isArray(o.why)
   && o.logins.length <= 3 && o.logins.length === o.why.length
   && o.logins.every((l) => typeof l === 'string' && NOT_A_NAME_OR_ADDRESS.test(l)) && o.why.every((w) => typeof w === 'string'));
@@ -24,7 +26,7 @@ module.exports = async (input) => {
     && Array.isArray(input.errors) && input.errors.every((e) => typeof e === 'string')
     && isHistory(input.history)
     && isHint(input.ownerHint)
-    && isObject(input.coverage);
-  if (!ok) throw new DeviceError('ARGUMENTS_INVALID', 'expected {run, errors: string[], history|null, ownerHint|null, coverage} in the triage result\'s shapes');
+    && isCoverage(input.coverage);
+  if (!ok) throw new DeviceError('ARGUMENTS_INVALID', 'expected {run, errors: string[], history|null, ownerHint|null, coverage with logsTruncated and logsUnavailable} in the triage result\'s shapes');
   return {output: assembleReport(input)};
 };

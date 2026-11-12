@@ -8,7 +8,7 @@
         "actionList": [
           {
             "name": "assemble",
-            "description": "Takes the triage result's parts (the run, the error lines, the failure history or null, the owner hint or null, the coverage) and returns them as {summary, run, errors, history, owner_hint, coverage}, in that order, each part's fields in a fixed order. The summary is one sentence: the failing step, the signature's verdict, how often it was seen in the window and the commit where it first appeared, e.g. \"Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.\"",
+            "description": "Takes the triage result's parts (the run, the error lines, the failure history or null, the owner hint or null, the coverage) and returns them as {summary, run, errors, history, owner_hint, coverage}, in that order, each part's fields in a fixed order. The summary is one sentence: the failing step, the signature's verdict, how often it was seen in the window and the commit where it first appeared, e.g. \"Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.\" The coverage states what the history could not see: logs expired, logs truncated by the server, and logs unavailable by run and job; the summary ends \"; 2 logs truncated, 1 unavailable\" when there were any.",
             "input": {"schema": "/reportService/assemble/input"},
             "output": {"schema": "/reportService/assemble/output"},
             "fault": {"schema": "/fault/reportService/assemble/fault"}

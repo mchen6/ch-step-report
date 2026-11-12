@@ -193,6 +193,31 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "logsTruncated": {
+                "title": "logs the server returned shorter than the log",
+                "type": "integer",
+                "minimum": 0
+              },
+              "logsUnavailable": {
+                "title": "logs that could not be read for another reason, by run and job (the job name redacted)",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "runId": {
+                      "type": "string"
+                    },
+                    "job": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "runId",
+                    "job"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "cacheHits": {
                 "type": "integer",
                 "minimum": 0
@@ -206,6 +231,8 @@
               "failedRuns",
               "logsFetched",
               "logsExpired",
+              "logsTruncated",
+              "logsUnavailable",
               "cacheHits",
               "capHit"
             ],
@@ -414,6 +441,31 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "logsTruncated": {
+                "title": "logs the server returned shorter than the log",
+                "type": "integer",
+                "minimum": 0
+              },
+              "logsUnavailable": {
+                "title": "logs that could not be read for another reason, by run and job (the job name redacted)",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "runId": {
+                      "type": "string"
+                    },
+                    "job": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "runId",
+                    "job"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "cacheHits": {
                 "type": "integer",
                 "minimum": 0
@@ -427,6 +479,8 @@
               "failedRuns",
               "logsFetched",
               "logsExpired",
+              "logsTruncated",
+              "logsUnavailable",
               "cacheHits",
               "capHit"
             ],

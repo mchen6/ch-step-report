@@ -20,7 +20,7 @@ const fixture = () => ({
 
 test('assemble writes the summary sentence', () => {
   assert.strictEqual(assembleReport(fixture()).summary,
-    "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.");
+    "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
 });
 
 test('the summary for each verdict and edge', () => {
@@ -40,7 +40,7 @@ test('the summary for each verdict and edge', () => {
 test('the summary counts the runs that were in the window, not the window asked for', () => {
   const f = fixture();
   f.coverage.runsListed = 12;
-  assert.strictEqual(assembleReport(f).summary, "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 12 runs, first at a1b2c3d.");
+  assert.strictEqual(assembleReport(f).summary, "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 12 runs, first at a1b2c3d; 1 log expired.");
 });
 
 test('assemble keeps field order', () => {
@@ -73,7 +73,12 @@ test('handler validates its input', async () => {
     {...f, ownerHint: {logins: [7], why: ['x']}}, {...f, ownerHint: {logins: ['octo@example.com'], why: ['x']}}, {...f, ownerHint: {logins: ['Octo Cat'], why: ['x']}}, {...f, ownerHint: {logins: ['a', 'b'], why: ['a: x']}},
     {...f, ownerHint: {logins: ['a', 'b', 'c', 'd'], why: ['1', '2', '3', '4']}},
     {...f, coverage: {...f.coverage, logsTruncated: -1}}, {...f, coverage: {...f.coverage, logsTruncated: '2'}},
-    {...f, coverage: {...f.coverage, logsUnavailable: 1}}, {...f, coverage: {...f.coverage, logsUnavailable: [{runId: '1'}]}}, {...f, coverage: {...f.coverage, logsUnavailable: [{runId: 1, job: 'j'}]}}]) {
+    {...f, coverage: {...f.coverage, logsUnavailable: 1}}, {...f, coverage: {...f.coverage, logsUnavailable: [{runId: '1'}]}}, {...f, coverage: {...f.coverage, logsUnavailable: [{runId: 1, job: 'j'}]}},
+    // From /code-review medium on #1: every coverage field is checked, job names carry no address, the list is bounded.
+    {...f, coverage: {...f.coverage, logsFetched: 'x'}}, {...f, coverage: {...f.coverage, cacheHits: -1}}, {...f, coverage: {...f.coverage, capHit: 'no'}},
+    {...f, coverage: {...f.coverage, runsListed: undefined}},
+    {...f, coverage: {...f.coverage, logsUnavailable: [{runId: '1', job: 'deploy (alice@example.com)'}]}},
+    {...f, coverage: {...f.coverage, logsUnavailable: Array.from({length: 51}, (_, i) => ({runId: String(i), job: 'j'}))}}]) {
     await assert.rejects(assemble(bad), invalid, JSON.stringify(bad).slice(0, 80));
   }
   const {output} = await assemble(f);
@@ -87,15 +92,31 @@ test('the module is a part: never listed', () => {
 // Task 9 (reviewer, 2026-11-11): coverage states truncated and unavailable logs, not only expired ones.
 test('the summary says how many logs were truncated or unavailable, only when there were any', () => {
   const f = fixture();
-  assert.strictEqual(assembleReport(f).summary, "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.");
+  assert.strictEqual(assembleReport(f).summary, "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
   const s = (logsTruncated, unavailable) => assembleReport({...f, coverage: {...f.coverage, logsTruncated, logsUnavailable: unavailable}}).summary;
-  assert.strictEqual(s(2, [{runId: '7', job: 'test (24)'}]), "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 2 logs truncated, 1 unavailable.");
-  assert.strictEqual(s(1, []), "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log truncated.");
-  assert.strictEqual(s(0, [{runId: '7', job: 'a'}, {runId: '8', job: 'b'}]), "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 2 logs unavailable.");
+  // the fixture has one expired log
+  assert.strictEqual(s(2, [{runId: '7', job: 'test (24)'}]), "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired, 2 truncated, 1 unavailable.");
+  assert.strictEqual(s(1, []), "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired, 1 truncated.");
+  const none = (patch) => assembleReport({...f, coverage: {...f.coverage, logsExpired: 0, ...patch}}).summary;
+  assert.strictEqual(none({}), "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.");
+  assert.strictEqual(none({logsUnavailable: [{runId: '7', job: 'a'}, {runId: '8', job: 'b'}]}), "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 2 logs unavailable.");
 });
 
 test('the unavailable logs are listed by run and job, in the order given', () => {
   const f = fixture();
   const unavailable = [{runId: '8', job: 'lint'}, {runId: '7', job: 'test (24)'}];
   assert.deepStrictEqual(assembleReport({...f, coverage: {...f.coverage, logsUnavailable: unavailable}}).coverage.logsUnavailable, unavailable);
+});
+
+// From /code-review medium on #1.
+test('with no history the sentence still says what could not be seen', () => {
+  const f = fixture();
+  const out = assembleReport({...f, history: null, coverage: {...f.coverage, logsExpired: 0, logsTruncated: 3, logsUnavailable: [{runId: '9', job: 'test'}]}});
+  assert.strictEqual(out.summary, "Step 'Run npm test' failed; it has no failure history: its log was not read (expired, unavailable or over the log cap); 3 logs truncated, 1 unavailable.");
+});
+
+test('a coverage from before 0.2.0 assembles, with no unavailable logs, rather than crashing', () => {
+  const f = fixture();
+  const old = {runsListed: 50, failedRuns: 6, logsFetched: 4, logsExpired: 1, cacheHits: 1, capHit: false};
+  assert.deepStrictEqual(assembleReport({...f, coverage: old}).coverage.logsUnavailable, []);
 });

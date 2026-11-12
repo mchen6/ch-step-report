@@ -216,7 +216,8 @@
                     "job"
                   ],
                   "additionalProperties": false
-                }
+                },
+                "maxItems": 50
               },
               "cacheHits": {
                 "type": "integer",
@@ -464,7 +465,8 @@
                     "job"
                   ],
                   "additionalProperties": false
-                }
+                },
+                "maxItems": 50
               },
               "cacheHits": {
                 "type": "integer",

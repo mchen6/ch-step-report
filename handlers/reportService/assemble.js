@@ -14,8 +14,14 @@ const isHistory = (h) => h === null || (isObject(h) && Number.isInteger(h.count)
 // only the guarantee that matters at its boundary: no e-mail address and no
 // display name ('@' or whitespace) can reach the report.
 const NOT_A_NAME_OR_ADDRESS = /^[^@\s]+$/;
-const isCoverage = (c) => isObject(c) && Number.isInteger(c.logsTruncated) && c.logsTruncated >= 0
-  && Array.isArray(c.logsUnavailable) && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && typeof u.job === 'string');
+// Every count a non-negative integer, capHit a boolean, and the unavailable logs
+// at most MAX_UNAVAILABLE, each a run id and a job name with no address in it.
+const COUNTS = ['runsListed', 'failedRuns', 'logsFetched', 'logsExpired', 'logsTruncated', 'cacheHits'];
+const MAX_UNAVAILABLE = 50;
+const ADDRESS = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+const isCoverage = (c) => isObject(c) && COUNTS.every((k) => Number.isInteger(c[k]) && c[k] >= 0) && typeof c.capHit === 'boolean'
+  && Array.isArray(c.logsUnavailable) && c.logsUnavailable.length <= MAX_UNAVAILABLE
+  && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && typeof u.job === 'string' && !ADDRESS.test(u.job));
 const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && Array.isArray(o.why)
   && o.logins.length <= 3 && o.logins.length === o.why.length
   && o.logins.every((l) => typeof l === 'string' && NOT_A_NAME_OR_ADDRESS.test(l)) && o.why.every((w) => typeof w === 'string'));

@@ -20,6 +20,7 @@ const COUNTS = ['runsListed', 'failedRuns', 'logsFetched', 'logsExpired', 'logsT
 const MAX_UNAVAILABLE = 50;
 const ADDRESS = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 const isCoverage = (c) => isObject(c) && COUNTS.every((k) => Number.isInteger(c[k]) && c[k] >= 0) && typeof c.capHit === 'boolean'
+  && (c.historyRebuilt === undefined || typeof c.historyRebuilt === 'boolean')
   && Array.isArray(c.logsUnavailable) && c.logsUnavailable.length <= MAX_UNAVAILABLE
   && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && typeof u.job === 'string' && !ADDRESS.test(u.job));
 const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && Array.isArray(o.why)

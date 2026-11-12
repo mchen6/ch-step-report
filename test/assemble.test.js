@@ -48,7 +48,7 @@ test('assemble keeps field order', () => {
   assert.deepStrictEqual(Object.keys(out), ['summary', 'run', 'errors', 'history', 'owner_hint', 'coverage']);
   assert.deepStrictEqual(Object.keys(out.run), ['id', 'url', 'branch', 'commit', 'workflow', 'job', 'step']);
   assert.deepStrictEqual(Object.keys(out.history), ['signature', 'count', 'window', 'verdict', 'firstSeen', 'lastSeen', 'runIds']);
-  assert.deepStrictEqual(Object.keys(out.coverage), ['runsListed', 'failedRuns', 'logsFetched', 'logsExpired', 'logsTruncated', 'logsUnavailable', 'cacheHits', 'capHit']);
+  assert.deepStrictEqual(Object.keys(out.coverage), ['runsListed', 'failedRuns', 'logsFetched', 'logsExpired', 'logsTruncated', 'logsUnavailable', 'cacheHits', 'capHit', 'historyRebuilt']);
   assert.deepStrictEqual(out.owner_hint, fixture().ownerHint);
   assert.deepStrictEqual(out.errors, fixture().errors);
   assert.strictEqual(JSON.stringify(out).includes('receipt'), false, 'the runtime adds the receipt, not this module');
@@ -119,4 +119,32 @@ test('a coverage from before 0.2.0 assembles, with no unavailable logs, rather t
   const f = fixture();
   const old = {runsListed: 50, failedRuns: 6, logsFetched: 4, logsExpired: 1, cacheHits: 1, capHit: false};
   assert.deepStrictEqual(assembleReport({...f, coverage: old}).coverage.logsUnavailable, []);
+});
+
+// The scenario's cache rebuilds when ch-step-failure-signature's algorithm
+// changed (reviewer, 2026-11-12): the result says so, in coverage and in the
+// summary, so a "new" verdict right after an upgrade is read as such.
+test('a rebuilt history is in coverage and the summary; absent, it is false and silent', () => {
+  const f = fixture();
+  const rebuilt = assembleReport({...f, coverage: {...f.coverage, historyRebuilt: true}});
+  assert.strictEqual(rebuilt.coverage.historyRebuilt, true);
+  assert.strictEqual(rebuilt.summary, "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired; history rebuilt (the failure signature changed).");
+  const plain = assembleReport(f);
+  assert.strictEqual(plain.coverage.historyRebuilt, false);
+  assert.doesNotMatch(plain.summary, /rebuilt/);
+  const none = assembleReport({...f, coverage: {...f.coverage, logsExpired: 0, historyRebuilt: true}});
+  assert.strictEqual(none.summary, "Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; history rebuilt (the failure signature changed).");
+});
+
+test('the handler takes historyRebuilt as a boolean and refuses anything else', async () => {
+  const f = fixture();
+  const {output} = await assemble({...f, coverage: {...f.coverage, historyRebuilt: true}});
+  assert.strictEqual(output.coverage.historyRebuilt, true);
+  await assert.rejects(assemble({...f, coverage: {...f.coverage, historyRebuilt: 'yes'}}), (e) => e.code === 'ARGUMENTS_INVALID');
+  const Ajv2020 = require('ajv/dist/2020');
+  const schema = require('../schema.json').reportService.assemble;
+  const ajv = new Ajv2020({strict: false});
+  assert.ok(ajv.validate(schema.input, {...f, coverage: {...f.coverage, historyRebuilt: true}}), JSON.stringify(ajv.errors));
+  assert.ok(ajv.validate(schema.output, output), JSON.stringify(ajv.errors));
+  assert.ok(!ajv.validate(schema.output, {...output, coverage: {...output.coverage, historyRebuilt: undefined}}) || output.coverage.historyRebuilt !== undefined);
 });

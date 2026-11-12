@@ -225,6 +225,10 @@
               },
               "capHit": {
                 "type": "boolean"
+              },
+              "historyRebuilt": {
+                "title": "the cache was rebuilt: the failure signature's algorithm changed",
+                "type": "boolean"
               }
             },
             "required": [
@@ -474,6 +478,10 @@
               },
               "capHit": {
                 "type": "boolean"
+              },
+              "historyRebuilt": {
+                "title": "the cache was rebuilt: the failure signature's algorithm changed",
+                "type": "boolean"
               }
             },
             "required": [
@@ -484,7 +492,8 @@
               "logsTruncated",
               "logsUnavailable",
               "cacheHits",
-              "capHit"
+              "capHit",
+              "historyRebuilt"
             ],
             "additionalProperties": false
           }

@@ -1,0 +1,20 @@
+{
+  "device": {
+    "friendlyName": "ch-step-report",
+    "manufacturer": "ch-packs",
+    "modelDescription": "Step module of the ch-packs family: assembles the CI failure triage result from its parts, with a one-sentence summary, in a fixed field order. A pure function of its input: no disk, no network, no state. It adds no receipt: the runtime does, from what it counted.",
+    "serviceList": {
+      "urn:ch-packs:serviceID:reportService": {
+        "actionList": [
+          {
+            "name": "assemble",
+            "description": "Takes the triage result's parts (the run, the error lines, the failure history or null, the owner hint or null, the coverage) and returns them as {summary, run, errors, history, owner_hint, coverage}, in that order, each part's fields in a fixed order. The summary is one sentence: the failing step, the signature's verdict, how often it was seen in the window and the commit where it first appeared, e.g. \"Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.\"",
+            "input": {"schema": "/reportService/assemble/input"},
+            "output": {"schema": "/reportService/assemble/output"},
+            "fault": {"schema": "/fault/reportService/assemble/fault"}
+          }
+        ]
+      }
+    }
+  }
+}

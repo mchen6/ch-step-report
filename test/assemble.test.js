@@ -246,15 +246,43 @@ test('workflow, branch and the owner-hint reasons are bounded too; a cut never s
   await assert.rejects(assemble({...f, run: {...f.run, job: 7}}), (e) => e.code === 'ARGUMENTS_INVALID');
 });
 
-test('the schema declares the same bounds, in the input and the output', () => {
+test('the schema bounds the output; the input\'s strings only at 20000, so a long name is cut, never refused by the runtime', () => {
+  const Ajv2020 = require('ajv/dist/2020');
   const a = require('../schema.json').reportService.assemble;
   const i = a.input.properties;
   const o = a.output.properties;
   assert.deepStrictEqual([i.run.properties.job.maxLength, i.run.properties.step.maxLength, i.errors.items.maxLength,
-    i.failedJobs.items.properties.name.maxLength, i.failedJobs.items.properties.step.maxLength, i.failedJobs.items.properties.firstError.maxLength], [200, 200, 500, 200, 200, 500]);
+    i.failedJobs.items.properties.name.maxLength, i.failedJobs.items.properties.step.maxLength, i.failedJobs.items.properties.firstError.maxLength], [20000, 20000, 20000, 20000, 20000, 20000]);
   const ofj = o.failed_jobs.anyOf[1].items.properties;
   assert.deepStrictEqual([o.run.properties.job.maxLength, o.run.properties.step.maxLength, o.errors.items.maxLength, ofj.job.maxLength, ofj.step.maxLength, ofj.first_error.maxLength],
     [200, 200, 500, 200, 200, 500]);
+  // a 300-character job name passes the input schema (the runtime validates it before the handler)
+  const f = fixture();
+  const validIn = new Ajv2020({allowUnionTypes: true}).compile(a.input);
+  assert.ok(validIn({...f, run: {...f.run, job: 'j'.repeat(300)}, failedJobs: [{name: 'n'.repeat(300), step: 's'.repeat(300), firstError: 'e'.repeat(600)}]}), JSON.stringify(validIn.errors));
+});
+
+test('every output string is bounded, and the output validates against the schema with every input string long', async () => {
+  const Ajv2020 = require('ajv/dist/2020');
+  const validOut = new Ajv2020({allowUnionTypes: true}).compile(require('../schema.json').reportService.assemble.output);
+  const L = (n, c) => c.repeat(n);
+  const f = fixture();
+  const seen = {runId: L(100, '1'), commit: L(100, 'c'), createdAt: L(100, 't')};
+  const {output} = await assemble({...f, run: {id: L(100, '9'), url: L(900, 'u'), branch: L(300, 'b'), commit: L(100, 'c'), workflow: L(300, 'w'), job: L(300, 'j'), step: L(300, 's')},
+    history: {...f.history, firstSeen: seen, lastSeen: seen, runIds: f.history.runIds.map(() => L(100, '7'))},
+    failedJobs: [{name: L(300, 'n'), step: L(300, 's'), firstError: L(900, 'e')}], errors: [L(900, 'x')]});
+  assert.ok(validOut(output), JSON.stringify(validOut.errors));
+  assert.ok(output.summary.length <= 1000);
+  assert.deepStrictEqual([output.run.id.length, output.run.url.length, output.run.commit.length, output.history.firstSeen.commit.length, output.history.runIds[0].length],
+    [32, 500, 64, 64, 32]);
+});
+
+test('a login over 39 characters is refused, never cut; errors over 200 are refused', async () => {
+  const f = fixture();
+  await assert.rejects(assemble({...f, ownerHint: {logins: ['l'.repeat(40)], why: ['w']}}), (e) => e.code === 'ARGUMENTS_INVALID');
+  const schema = require('../schema.json').reportService.assemble;
+  assert.strictEqual(schema.input.properties.errors.maxItems, 200);
+  assert.strictEqual(schema.output.properties.errors.maxItems, 200);
 });
 
 test('the address check is linear: a 40 KB string with many @ takes milliseconds, and it finds what the old pattern found', () => {

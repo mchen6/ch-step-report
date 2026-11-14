@@ -51,7 +51,7 @@ const isFailedJob = (j) => isObject(j) && Object.keys(j).length === 3 && noAddre
 const isFailedJobs = (l) => l === undefined || (Array.isArray(l) && l.length <= MAX_FAILED_JOBS && l.every(isFailedJob));
 const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && Array.isArray(o.why)
   && o.logins.length <= 3 && o.logins.length === o.why.length
-  && o.logins.every((l) => typeof l === 'string' && NOT_A_NAME_OR_ADDRESS.test(l)) && o.why.every((w) => typeof w === 'string'));
+  && o.logins.every((l) => typeof l === 'string' && l.length <= LOGIN_MAX && NOT_A_NAME_OR_ADDRESS.test(l)) && o.why.every((w) => typeof w === 'string'));
 
 // Every free-text string the report carries, bounded (the reviewer,
 // 2026-11-13): a name (job, step, workflow, branch) at most 200 characters,
@@ -61,6 +61,16 @@ const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && A
 // address, never make one. What is not a string is left as it is.
 const NAME_MAX = 200;
 const LINE_MAX = 500;
+// The other strings: ids, a URL, commits and times, cut to their bound too;
+// a login is never cut (a cut one would name someone else), and one over
+// GitHub's 39 characters is refused. A string taken in may be up to
+// IN_MAX (the schema's input bound): the runtime refuses longer before this
+// runs, and every check here is linear in it.
+const ID_MAX = 32;
+const URL_MAX = 500;
+const COMMIT_MAX = 64;
+const TIME_MAX = 40;
+const LOGIN_MAX = 39;
 // Cut at `max` with …, never between the two halves of a surrogate pair.
 function cut(v, max) {
   if (typeof v !== 'string' || v.length <= max) return v;
@@ -74,7 +84,13 @@ function bounded(input) {
   const out = {...input};
   if (isObject(input.run)) {
     out.run = {...input.run, job: cut(input.run.job, NAME_MAX), step: cut(input.run.step, NAME_MAX),
-      workflow: cut(input.run.workflow, NAME_MAX), branch: cut(input.run.branch, NAME_MAX)};
+      workflow: cut(input.run.workflow, NAME_MAX), branch: cut(input.run.branch, NAME_MAX),
+      id: cut(input.run.id, ID_MAX), url: cut(input.run.url, URL_MAX), commit: cut(input.run.commit, COMMIT_MAX)};
+  }
+  if (isObject(input.history)) {
+    const seen = (s) => (isObject(s) ? {...s, runId: cut(s.runId, ID_MAX), commit: cut(s.commit, COMMIT_MAX), createdAt: cut(s.createdAt, TIME_MAX)} : s);
+    out.history = {...input.history, firstSeen: seen(input.history.firstSeen), lastSeen: seen(input.history.lastSeen),
+      runIds: Array.isArray(input.history.runIds) ? input.history.runIds.map((r) => cut(r, ID_MAX)) : input.history.runIds};
   }
   if (isObject(input.ownerHint) && Array.isArray(input.ownerHint.why)) out.ownerHint = {...input.ownerHint, why: input.ownerHint.why.map((w) => cut(w, LINE_MAX))};
   if (Array.isArray(input.errors)) out.errors = input.errors.map((e) => cut(e, LINE_MAX));

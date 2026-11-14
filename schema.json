@@ -11,32 +11,35 @@
             "type": "object",
             "properties": {
               "id": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 20000
               },
               "url": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 20000
               },
               "branch": {
                 "type": "string",
-                "maxLength": 200
+                "maxLength": 20000
               },
               "commit": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 20000
               },
               "workflow": {
                 "type": "string",
-                "maxLength": 200
+                "maxLength": 20000
               },
               "job": {
                 "type": "string",
-                "maxLength": 200
+                "maxLength": 20000
               },
               "step": {
                 "type": [
                   "string",
                   "null"
                 ],
-                "maxLength": 200
+                "maxLength": 20000
               }
             },
             "required": [
@@ -59,21 +62,21 @@
               "properties": {
                 "name": {
                   "type": "string",
-                  "maxLength": 200
+                  "maxLength": 20000
                 },
                 "step": {
                   "type": [
                     "string",
                     "null"
                   ],
-                  "maxLength": 200
+                  "maxLength": 20000
                 },
                 "firstError": {
                   "type": [
                     "string",
                     "null"
                   ],
-                  "maxLength": 500
+                  "maxLength": 20000
                 }
               },
               "required": [
@@ -89,8 +92,9 @@
             "type": "array",
             "items": {
               "type": "string",
-              "maxLength": 500
-            }
+              "maxLength": 20000
+            },
+            "maxItems": 200
           },
           "history": {
             "anyOf": [
@@ -124,13 +128,16 @@
                     "type": "object",
                     "properties": {
                       "runId": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 20000
                       },
                       "commit": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 20000
                       },
                       "createdAt": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 20000
                       }
                     },
                     "required": [
@@ -144,13 +151,16 @@
                     "type": "object",
                     "properties": {
                       "runId": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 20000
                       },
                       "commit": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 20000
                       },
                       "createdAt": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 20000
                       }
                     },
                     "required": [
@@ -163,8 +173,10 @@
                   "runIds": {
                     "type": "array",
                     "items": {
-                      "type": "string"
-                    }
+                      "type": "string",
+                      "maxLength": 20000
+                    },
+                    "maxItems": 1000
                   }
                 },
                 "required": [
@@ -194,7 +206,8 @@
                     "maxItems": 3,
                     "items": {
                       "type": "string",
-                      "pattern": "^[^@\\s]+$"
+                      "pattern": "^[^@\\s]+$",
+                      "maxLength": 39
                     }
                   },
                   "why": {
@@ -202,7 +215,7 @@
                     "maxItems": 3,
                     "items": {
                       "type": "string",
-                      "maxLength": 500
+                      "maxLength": 20000
                     }
                   }
                 },
@@ -245,11 +258,12 @@
                   "type": "object",
                   "properties": {
                     "runId": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 20000
                     },
                     "job": {
                       "type": "string",
-                      "maxLength": 200
+                      "maxLength": 20000
                     }
                   },
                   "required": [
@@ -299,23 +313,27 @@
         "properties": {
           "summary": {
             "title": "one sentence",
-            "type": "string"
+            "type": "string",
+            "maxLength": 1000
           },
           "run": {
             "type": "object",
             "properties": {
               "id": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 32
               },
               "url": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 500
               },
               "branch": {
                 "type": "string",
                 "maxLength": 200
               },
               "commit": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 64
               },
               "workflow": {
                 "type": "string",
@@ -391,7 +409,8 @@
             "items": {
               "type": "string",
               "maxLength": 500
-            }
+            },
+            "maxItems": 200
           },
           "history": {
             "anyOf": [
@@ -425,13 +444,16 @@
                     "type": "object",
                     "properties": {
                       "runId": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 32
                       },
                       "commit": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 64
                       },
                       "createdAt": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 40
                       }
                     },
                     "required": [
@@ -445,13 +467,16 @@
                     "type": "object",
                     "properties": {
                       "runId": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 32
                       },
                       "commit": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 64
                       },
                       "createdAt": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 40
                       }
                     },
                     "required": [
@@ -464,8 +489,10 @@
                   "runIds": {
                     "type": "array",
                     "items": {
-                      "type": "string"
-                    }
+                      "type": "string",
+                      "maxLength": 32
+                    },
+                    "maxItems": 1000
                   }
                 },
                 "required": [
@@ -495,7 +522,8 @@
                     "maxItems": 3,
                     "items": {
                       "type": "string",
-                      "pattern": "^[^@\\s]+$"
+                      "pattern": "^[^@\\s]+$",
+                      "maxLength": 39
                     }
                   },
                   "why": {

@@ -17,22 +17,26 @@
                 "type": "string"
               },
               "branch": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               "commit": {
                 "type": "string"
               },
               "workflow": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               "job": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               "step": {
                 "type": [
                   "string",
                   "null"
-                ]
+                ],
+                "maxLength": 200
               }
             },
             "required": [
@@ -54,19 +58,22 @@
               "type": "object",
               "properties": {
                 "name": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 200
                 },
                 "step": {
                   "type": [
                     "string",
                     "null"
-                  ]
+                  ],
+                  "maxLength": 200
                 },
                 "firstError": {
                   "type": [
                     "string",
                     "null"
-                  ]
+                  ],
+                  "maxLength": 500
                 }
               },
               "required": [
@@ -81,7 +88,8 @@
             "title": "the few error lines, redacted",
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 500
             }
           },
           "history": {
@@ -193,7 +201,8 @@
                     "type": "array",
                     "maxItems": 3,
                     "items": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 500
                     }
                   }
                 },
@@ -239,7 +248,8 @@
                       "type": "string"
                     },
                     "job": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 200
                     }
                   },
                   "required": [
@@ -301,22 +311,26 @@
                 "type": "string"
               },
               "branch": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               "commit": {
                 "type": "string"
               },
               "workflow": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               "job": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               "step": {
                 "type": [
                   "string",
                   "null"
-                ]
+                ],
+                "maxLength": 200
               }
             },
             "required": [
@@ -343,19 +357,22 @@
                   "type": "object",
                   "properties": {
                     "job": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 200
                     },
                     "step": {
                       "type": [
                         "string",
                         "null"
-                      ]
+                      ],
+                      "maxLength": 200
                     },
                     "first_error": {
                       "type": [
                         "string",
                         "null"
-                      ]
+                      ],
+                      "maxLength": 500
                     }
                   },
                   "required": [
@@ -372,7 +389,8 @@
             "title": "the few error lines, redacted",
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 500
             }
           },
           "history": {
@@ -484,7 +502,8 @@
                     "type": "array",
                     "maxItems": 3,
                     "items": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 500
                     }
                   }
                 },
@@ -530,7 +549,8 @@
                       "type": "string"
                     },
                     "job": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 200
                     }
                   },
                   "required": [

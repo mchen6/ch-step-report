@@ -209,3 +209,62 @@ test('over 50 failed jobs, the first 50 are listed and the note counts them all'
   assert.strictEqual(out.failed_jobs[49].job, 'test (49)');
   assert.ok(out.summary.startsWith('300 jobs failed (the first 50 listed); the pack cannot tell which ones gate the run. '), out.summary);
 });
+
+// Bounded strings and a linear address check (the reviewer's review of #3,
+// 2026-11-13).
+test('every free-text string is bounded before anything else runs: names and steps 200, error lines 500, cut with …', async () => {
+  const long = (n, c = 'x') => c.repeat(n);
+  const f = fixture();
+  const {output} = await assemble({...f, run: {...f.run, job: long(300), step: long(300)}, errors: [long(600)],
+    failedJobs: [{name: long(300), step: long(300), firstError: long(600)}],
+    coverage: {...f.coverage, logsUnavailable: [{runId: '1', job: long(300)}]}});
+  assert.strictEqual(output.run.job, `${long(199)}…`);
+  assert.strictEqual(output.run.step, `${long(199)}…`);
+  assert.strictEqual(output.errors[0], `${long(499)}…`);
+  assert.deepStrictEqual(output.failed_jobs[0], {job: `${long(199)}…`, step: `${long(199)}…`, first_error: `${long(499)}…`});
+  assert.strictEqual(output.coverage.logsUnavailable[0].job, `${long(199)}…`);
+  assert.ok(output.summary.length < 400, output.summary);
+});
+
+test('an address the cut would split is still refused: the check reads the strings as given', async () => {
+  const f = fixture();
+  for (const at of [480, 485, 490]) {
+    const firstError = `${'x'.repeat(at)} bob@corp.example`;
+    await assert.rejects(assemble({...f, failedJobs: [{name: 'j', step: null, firstError}]}), (e) => e.code === 'ARGUMENTS_INVALID', String(at));
+  }
+  await assert.rejects(assemble({...f, failedJobs: [{name: `${'n'.repeat(190)} al@corp.example`, step: null, firstError: null}]}), (e) => e.code === 'ARGUMENTS_INVALID');
+});
+
+test('workflow, branch and the owner-hint reasons are bounded too; a cut never splits a surrogate pair', async () => {
+  const f = fixture();
+  const emoji = '\u{1F600}';
+  const {output} = await assemble({...f, run: {...f.run, workflow: 'w'.repeat(300), branch: `${'b'.repeat(198)}${emoji}${'b'.repeat(10)}`},
+    ownerHint: {logins: ['octocat'], why: ['y'.repeat(800)]}});
+  assert.strictEqual(output.run.workflow, `${'w'.repeat(199)}…`);
+  assert.strictEqual(output.run.branch, `${'b'.repeat(198)}…`, 'the pair is not split');
+  assert.strictEqual(output.owner_hint.why[0], `${'y'.repeat(499)}…`);
+  await assert.rejects(assemble({...f, run: {...f.run, job: 7}}), (e) => e.code === 'ARGUMENTS_INVALID');
+});
+
+test('the schema declares the same bounds, in the input and the output', () => {
+  const a = require('../schema.json').reportService.assemble;
+  const i = a.input.properties;
+  const o = a.output.properties;
+  assert.deepStrictEqual([i.run.properties.job.maxLength, i.run.properties.step.maxLength, i.errors.items.maxLength,
+    i.failedJobs.items.properties.name.maxLength, i.failedJobs.items.properties.step.maxLength, i.failedJobs.items.properties.firstError.maxLength], [200, 200, 500, 200, 200, 500]);
+  const ofj = o.failed_jobs.anyOf[1].items.properties;
+  assert.deepStrictEqual([o.run.properties.job.maxLength, o.run.properties.step.maxLength, o.errors.items.maxLength, ofj.job.maxLength, ofj.step.maxLength, ofj.first_error.maxLength],
+    [200, 200, 500, 200, 200, 500]);
+});
+
+test('the address check is linear: a 40 KB string with many @ takes milliseconds, and it finds what the old pattern found', () => {
+  const {hasAddress} = assemble;
+  const started = Date.now();
+  for (const s of ['a'.repeat(40000), '@'.repeat(40000), `${'a@'.repeat(20000)}`, `${'a@b'.repeat(13000)}`, 'x'.repeat(39999) + '@']) hasAddress(s);
+  assert.ok(Date.now() - started < 200, `${Date.now() - started} ms`);
+  const OLD = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+  for (const s of ['alice@example.com', 'deploy (alice@example.com)', 'a@b.c', '@b.c', 'a@.c', 'a@b.', 'a@b', 'x a @b.c', 'a@@b.c', 'mail a@b.co.uk now',
+    'two@ats@x.y', 'a@b .c', 'Error: denied for bob@corp.example', 'no address here', 'a@b.c@d', '.@..', 'a@b..c']) {
+    assert.strictEqual(hasAddress(s), OLD.test(s), s);
+  }
+});

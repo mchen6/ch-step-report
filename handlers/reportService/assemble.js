@@ -1,9 +1,9 @@
 'use strict';
-// ch-step-report/reportService.assemble: {run, errors, history, ownerHint,
-// coverage} -> the result with its summary, in a fixed field order.
+// ch-step-report/reportService.assemble: {run, failedJobs, errors, history,
+// ownerHint, coverage} -> the result with its summary, in a fixed field order.
 const {assembleReport} = require('../../lib/report');
 
-const INPUT = ['run', 'errors', 'history', 'ownerHint', 'coverage'];
+const INPUT = ['run', 'failedJobs', 'errors', 'history', 'ownerHint', 'coverage'];
 const VERDICTS = ['new', 'flaky', 'recurring'];
 const isObject = (x) => x != null && typeof x === 'object' && !Array.isArray(x);
 const isSeen = (s) => isObject(s) && typeof s.commit === 'string';
@@ -23,6 +23,15 @@ const isCoverage = (c) => isObject(c) && COUNTS.every((k) => Number.isInteger(c[
   && (c.historyRebuilt === undefined || typeof c.historyRebuilt === 'boolean')
   && Array.isArray(c.logsUnavailable) && c.logsUnavailable.length <= MAX_UNAVAILABLE
   && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && typeof u.job === 'string' && !ADDRESS.test(u.job));
+// Every failed job of the run (0.4.0, optional): a name, the failing step and
+// the first error line, each text (or null for the last two) with no address
+// in it; at most a run's jobs (GitHub runs at most 256 per matrix, and a run
+// may have several), of which the report lists the first 50.
+const MAX_FAILED_JOBS = 1000;
+const noAddress = (t) => typeof t === 'string' && !ADDRESS.test(t);
+const isFailedJob = (j) => isObject(j) && Object.keys(j).length === 3 && noAddress(j.name)
+  && (j.step === null || noAddress(j.step)) && (j.firstError === null || noAddress(j.firstError));
+const isFailedJobs = (l) => l === undefined || (Array.isArray(l) && l.length <= MAX_FAILED_JOBS && l.every(isFailedJob));
 const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && Array.isArray(o.why)
   && o.logins.length <= 3 && o.logins.length === o.why.length
   && o.logins.every((l) => typeof l === 'string' && NOT_A_NAME_OR_ADDRESS.test(l)) && o.why.every((w) => typeof w === 'string'));
@@ -30,10 +39,11 @@ const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && A
 module.exports = async (input) => {
   const ok = isObject(input) && Object.keys(input).every((k) => INPUT.includes(k))
     && isObject(input.run) && (input.run.step === null || typeof input.run.step === 'string')
+    && isFailedJobs(input.failedJobs)
     && Array.isArray(input.errors) && input.errors.every((e) => typeof e === 'string')
     && isHistory(input.history)
     && isHint(input.ownerHint)
     && isCoverage(input.coverage);
-  if (!ok) throw new DeviceError('ARGUMENTS_INVALID', 'expected {run, errors: string[], history|null, ownerHint|null, coverage with logsTruncated and logsUnavailable} in the triage result\'s shapes');
+  if (!ok) throw new DeviceError('ARGUMENTS_INVALID', 'expected {run, failedJobs?: {name, step, firstError}[], errors: string[], history|null, ownerHint|null, coverage with logsTruncated and logsUnavailable} in the triage result\'s shapes');
   return {output: assembleReport(input)};
 };

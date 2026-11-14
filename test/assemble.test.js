@@ -45,7 +45,7 @@ test('the summary counts the runs that were in the window, not the window asked 
 
 test('assemble keeps field order', () => {
   const out = assembleReport(fixture());
-  assert.deepStrictEqual(Object.keys(out), ['summary', 'run', 'errors', 'history', 'owner_hint', 'coverage']);
+  assert.deepStrictEqual(Object.keys(out), ['summary', 'run', 'failed_jobs', 'errors', 'history', 'owner_hint', 'coverage']);
   assert.deepStrictEqual(Object.keys(out.run), ['id', 'url', 'branch', 'commit', 'workflow', 'job', 'step']);
   assert.deepStrictEqual(Object.keys(out.history), ['signature', 'count', 'window', 'verdict', 'firstSeen', 'lastSeen', 'runIds']);
   assert.deepStrictEqual(Object.keys(out.coverage), ['runsListed', 'failedRuns', 'logsFetched', 'logsExpired', 'logsTruncated', 'logsUnavailable', 'cacheHits', 'capHit', 'historyRebuilt']);
@@ -147,4 +147,65 @@ test('the handler takes historyRebuilt as a boolean and refuses anything else', 
   assert.ok(ajv.validate(schema.input, {...f, coverage: {...f.coverage, historyRebuilt: true}}), JSON.stringify(ajv.errors));
   assert.ok(ajv.validate(schema.output, output), JSON.stringify(ajv.errors));
   assert.ok(!ajv.validate(schema.output, {...output, coverage: {...output.coverage, historyRebuilt: undefined}}) || output.coverage.historyRebuilt !== undefined);
+});
+
+// Every failed job of the run (dogfood of run 43497750749, the reviewer,
+// 2026-11-13): the triage led with one job of nine. Each is listed by name,
+// failing step and first error line; the pack cannot tell which ones gate
+// the run, and the summary says so when more than one failed.
+const JOBS = [
+  {name: 'stdio (windows-latest)', step: 'Run stdio tests', firstError: "Error: ENOENT: no such file or directory, realpath 'lib/cli-options.js'"},
+  {name: 'test (24)', step: 'Run npm test', firstError: 'AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:'},
+  {name: 'sandbox-floor (22)', step: null, firstError: null}
+];
+
+test('every failed job is listed, in the order given, after the run', () => {
+  const out = assembleReport({...fixture(), failedJobs: JOBS});
+  assert.deepStrictEqual(out.failed_jobs, JOBS.map((j) => ({job: j.name, step: j.step, first_error: j.firstError})));
+  assert.deepStrictEqual(Object.keys(out.failed_jobs[0]), ['job', 'step', 'first_error']);
+});
+
+test('with more than one failed job, the summary says how many and that the pack cannot tell which ones gate the run', () => {
+  assert.strictEqual(assembleReport({...fixture(), failedJobs: JOBS}).summary,
+    "3 jobs failed; the pack cannot tell which ones gate the run. Step 'Run npm test' failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
+  assert.strictEqual(assembleReport({...fixture(), failedJobs: JOBS.slice(0, 1)}).summary, assembleReport(fixture()).summary, 'one job: no note');
+});
+
+test('an input from before 0.4.0 (no failedJobs) assembles with failed_jobs null (not known) and no note', () => {
+  const out = assembleReport(fixture());
+  assert.strictEqual(out.failed_jobs, null);
+  assert.strictEqual(out.summary.startsWith('Step '), true);
+});
+
+test('the handler checks failedJobs: a name, step and first error with no address, the last two text or null, at most 1000', async () => {
+  const invalid = (err) => err.code === 'ARGUMENTS_INVALID';
+  const f = fixture();
+  for (const bad of [{...f, failedJobs: 'x'}, {...f, failedJobs: [{name: 7, step: null, firstError: null}]},
+    {...f, failedJobs: [{name: 'j', step: 1, firstError: null}]}, {...f, failedJobs: [{name: 'j', step: null, firstError: 2}]},
+    {...f, failedJobs: [{name: 'j', step: null}]}, {...f, failedJobs: [{name: 'j', step: null, firstError: null, extra: 1}]},
+    {...f, failedJobs: [{name: 'deploy (alice@example.com)', step: null, firstError: null}]},
+    {...f, failedJobs: [{name: 'j', step: 'notify alice@example.com', firstError: null}]},
+    {...f, failedJobs: [{name: 'j', step: null, firstError: 'Error: denied for alice@example.com'}]},
+    {...f, failedJobs: Array.from({length: 1001}, (_, i) => ({name: `j${i}`, step: null, firstError: null}))}]) {
+    await assert.rejects(assemble(bad), invalid, JSON.stringify(bad).slice(0, 80));
+  }
+  const {output} = await assemble({...f, failedJobs: JOBS});
+  assert.deepStrictEqual(output, assembleReport({...f, failedJobs: JOBS}));
+});
+
+test('the output matches the declared output schema, with and without failed jobs', () => {
+  const Ajv2020 = require('ajv/dist/2020');
+  const schema = require('../schema.json').reportService.assemble.output;
+  const validate = new Ajv2020({allowUnionTypes: true}).compile(schema);
+  for (const input of [fixture(), {...fixture(), failedJobs: JOBS}, {...fixture(), failedJobs: Array.from({length: 60}, (_, i) => ({name: `j${i}`, step: null, firstError: null}))}]) {
+    assert.ok(validate(assembleReport(input)), JSON.stringify(validate.errors));
+  }
+});
+
+test('over 50 failed jobs, the first 50 are listed and the note counts them all', () => {
+  const many = Array.from({length: 300}, (_, i) => ({name: `test (${i})`, step: 'Run npm test', firstError: null}));
+  const out = assembleReport({...fixture(), failedJobs: many});
+  assert.strictEqual(out.failed_jobs.length, 50);
+  assert.strictEqual(out.failed_jobs[49].job, 'test (49)');
+  assert.ok(out.summary.startsWith('300 jobs failed (the first 50 listed); the pack cannot tell which ones gate the run. '), out.summary);
 });

@@ -46,6 +46,37 @@
             ],
             "additionalProperties": false
           },
+          "failedJobs": {
+            "title": "every failed job of the run, in GitHub's order",
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "step": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "firstError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "step",
+                "firstError"
+              ],
+              "additionalProperties": false
+            }
+          },
           "errors": {
             "title": "the few error lines, redacted",
             "type": "array",
@@ -299,6 +330,44 @@
             ],
             "additionalProperties": false
           },
+          "failed_jobs": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "title": "every failed job of the run (the first 50), or null when not given; which ones gate the run is not known",
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "job": {
+                      "type": "string"
+                    },
+                    "step": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "first_error": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "job",
+                    "step",
+                    "first_error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
           "errors": {
             "title": "the few error lines, redacted",
             "type": "array",
@@ -501,6 +570,7 @@
         "required": [
           "summary",
           "run",
+          "failed_jobs",
           "errors",
           "history",
           "owner_hint",

@@ -1,6 +1,6 @@
 # @countinghouse/ch-step-report
 
-countinghouse step module: the CI triage result assembled, with its one-sentence summary and a fixed field order.
+countinghouse step module: the CI triage result assembled, with its summary, every failed job of the run, and a fixed field order.
 
 **Status: preview.** Runs on [countinghouse](https://github.com/mchen6/countinghouse)
 8.0 or later (unreleased; the release that carries the remote client and

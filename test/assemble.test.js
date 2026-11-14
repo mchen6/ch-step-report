@@ -272,7 +272,7 @@ test('every output string is bounded, and the output validates against the schem
     history: {...f.history, firstSeen: seen, lastSeen: seen, runIds: f.history.runIds.map(() => L(100, '7'))},
     failedJobs: [{name: L(300, 'n'), step: L(300, 's'), firstError: L(900, 'e')}], errors: [L(900, 'x')]});
   assert.ok(validOut(output), JSON.stringify(validOut.errors));
-  assert.ok(output.summary.length <= 1000);
+  assert.ok(output.summary.length <= 500);
   assert.deepStrictEqual([output.run.id.length, output.run.url.length, output.run.commit.length, output.history.firstSeen.commit.length, output.history.runIds[0].length],
     [32, 500, 64, 64, 32]);
 });
@@ -295,4 +295,14 @@ test('the address check is linear: a 40 KB string with many @ takes milliseconds
     'two@ats@x.y', 'a@b .c', 'Error: denied for bob@corp.example', 'no address here', 'a@b.c@d', '.@..', 'a@b..c']) {
     assert.strictEqual(hasAddress(s), OLD.test(s), s);
   }
+});
+
+test('an unavailable log\'s run id is cut to 32, and the summary is at most 500 characters', async () => {
+  const f = fixture();
+  const {output} = await assemble({...f, run: {...f.run, step: 's'.repeat(300)}, failedJobs: Array.from({length: 3}, (_, i) => ({name: `j${i}`, step: null, firstError: null})),
+    coverage: {...f.coverage, logsUnavailable: [{runId: '9'.repeat(20000), job: 'j'}]}});
+  assert.strictEqual(output.coverage.logsUnavailable[0].runId, `${'9'.repeat(31)}…`);
+  assert.ok(output.summary.length <= 500, String(output.summary.length));
+  const o = require('../schema.json').reportService.assemble.output.properties;
+  assert.deepStrictEqual([o.summary.maxLength, o.coverage.properties.logsUnavailable.items.properties.runId.maxLength], [500, 32]);
 });

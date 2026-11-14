@@ -98,7 +98,7 @@ function bounded(input) {
     out.failedJobs = input.failedJobs.map((j) => (isObject(j) ? {...j, name: cut(j.name, NAME_MAX), step: cut(j.step, NAME_MAX), firstError: cut(j.firstError, LINE_MAX)} : j));
   }
   if (isObject(input.coverage) && Array.isArray(input.coverage.logsUnavailable)) {
-    out.coverage = {...input.coverage, logsUnavailable: input.coverage.logsUnavailable.map((u) => (isObject(u) ? {...u, job: cut(u.job, NAME_MAX)} : u))};
+    out.coverage = {...input.coverage, logsUnavailable: input.coverage.logsUnavailable.map((u) => (isObject(u) ? {...u, runId: cut(u.runId, ID_MAX), job: cut(u.job, NAME_MAX)} : u))};
   }
   return out;
 }

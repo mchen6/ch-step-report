@@ -314,7 +314,7 @@
           "summary": {
             "title": "one sentence",
             "type": "string",
-            "maxLength": 1000
+            "maxLength": 500
           },
           "run": {
             "type": "object",
@@ -574,7 +574,8 @@
                   "type": "object",
                   "properties": {
                     "runId": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 32
                     },
                     "job": {
                       "type": "string",

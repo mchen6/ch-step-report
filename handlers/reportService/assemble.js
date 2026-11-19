@@ -103,7 +103,7 @@ function bounded(input) {
   return out;
 }
 
-module.exports = async (input) => {
+module.exports = async (input, ctx) => {
   const ok = isObject(input) && Object.keys(input).every((k) => INPUT.includes(k))
     && isObject(input.run) && typeof input.run.job === 'string' && (input.run.step === null || typeof input.run.step === 'string')
     && isFailedJobs(input.failedJobs)
@@ -111,7 +111,7 @@ module.exports = async (input) => {
     && isHistory(input.history)
     && isHint(input.ownerHint)
     && isCoverage(input.coverage);
-  if (!ok) throw new DeviceError('ARGUMENTS_INVALID', 'expected {run, failedJobs?: {name, step, firstError}[], errors: string[], history|null, ownerHint|null, coverage with logsTruncated and logsUnavailable} in the triage result\'s shapes');
+  if (!ok) throw ctx.error('INPUT_REJECTED', 'expected {run, failedJobs?: {name, step, firstError}[], errors: string[], history|null, ownerHint|null, coverage with logsTruncated and logsUnavailable} in the triage result\'s shapes');
   return {output: assembleReport(bounded(input))};
 };
 

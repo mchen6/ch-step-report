@@ -1,9 +1,12 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-require('./support');
 const {assembleReport, summaryOf} = require('../lib/report');
-const assemble = require('../handlers/reportService/assemble');
+const {CountinghouseError} = require('countinghouse/lib/countinghouse-error');
+// the handler as the runtime calls it: (input, ctx), ctx.error the runtime's
+const ctx = {error: (code, message, details) => CountinghouseError.module(code, message, details)};
+const handler = require('../handlers/reportService/assemble');
+const assemble = Object.assign((input) => handler(input, ctx), handler);
 
 const SIG = 'e'.repeat(64);
 const fixture = () => ({
@@ -65,7 +68,7 @@ test('an absent owner hint is null', () => {
 });
 
 test('handler validates its input', async () => {
-  const invalid = (err) => err.code === 'ARGUMENTS_INVALID';
+  const invalid = (err) => err.code === 'INPUT_REJECTED';
   const f = fixture();
   for (const bad of [{}, null, {...f, run: null}, {...f, run: {...f.run, step: 7}}, {...f, errors: [1]}, {...f, history: {...f.history, verdict: 'odd'}},
     {...f, history: {...f.history, count: 0}}, {...f, coverage: null}, {...f, extra: 1},
@@ -140,7 +143,7 @@ test('the handler takes historyRebuilt as a boolean and refuses anything else', 
   const f = fixture();
   const {output} = await assemble({...f, coverage: {...f.coverage, historyRebuilt: true}});
   assert.strictEqual(output.coverage.historyRebuilt, true);
-  await assert.rejects(assemble({...f, coverage: {...f.coverage, historyRebuilt: 'yes'}}), (e) => e.code === 'ARGUMENTS_INVALID');
+  await assert.rejects(assemble({...f, coverage: {...f.coverage, historyRebuilt: 'yes'}}), (e) => e.code === 'INPUT_REJECTED');
   const Ajv2020 = require('ajv/dist/2020');
   const schema = require('../schema.json').reportService.assemble;
   const ajv = new Ajv2020({strict: false});
@@ -178,7 +181,7 @@ test('an input from before 0.4.0 (no failedJobs) assembles with failed_jobs null
 });
 
 test('the handler checks failedJobs: a name, step and first error with no address, the last two text or null, at most 1000', async () => {
-  const invalid = (err) => err.code === 'ARGUMENTS_INVALID';
+  const invalid = (err) => err.code === 'INPUT_REJECTED';
   const f = fixture();
   for (const bad of [{...f, failedJobs: 'x'}, {...f, failedJobs: [{name: 7, step: null, firstError: null}]},
     {...f, failedJobs: [{name: 'j', step: 1, firstError: null}]}, {...f, failedJobs: [{name: 'j', step: null, firstError: 2}]},
@@ -230,9 +233,9 @@ test('an address the cut would split is still refused: the check reads the strin
   const f = fixture();
   for (const at of [480, 485, 490]) {
     const firstError = `${'x'.repeat(at)} bob@corp.example`;
-    await assert.rejects(assemble({...f, failedJobs: [{name: 'j', step: null, firstError}]}), (e) => e.code === 'ARGUMENTS_INVALID', String(at));
+    await assert.rejects(assemble({...f, failedJobs: [{name: 'j', step: null, firstError}]}), (e) => e.code === 'INPUT_REJECTED', String(at));
   }
-  await assert.rejects(assemble({...f, failedJobs: [{name: `${'n'.repeat(190)} al@corp.example`, step: null, firstError: null}]}), (e) => e.code === 'ARGUMENTS_INVALID');
+  await assert.rejects(assemble({...f, failedJobs: [{name: `${'n'.repeat(190)} al@corp.example`, step: null, firstError: null}]}), (e) => e.code === 'INPUT_REJECTED');
 });
 
 test('workflow, branch and the owner-hint reasons are bounded too; a cut never splits a surrogate pair', async () => {
@@ -243,7 +246,7 @@ test('workflow, branch and the owner-hint reasons are bounded too; a cut never s
   assert.strictEqual(output.run.workflow, `${'w'.repeat(199)}…`);
   assert.strictEqual(output.run.branch, `${'b'.repeat(198)}…`, 'the pair is not split');
   assert.strictEqual(output.owner_hint.why[0], `${'y'.repeat(499)}…`);
-  await assert.rejects(assemble({...f, run: {...f.run, job: 7}}), (e) => e.code === 'ARGUMENTS_INVALID');
+  await assert.rejects(assemble({...f, run: {...f.run, job: 7}}), (e) => e.code === 'INPUT_REJECTED');
 });
 
 test('the schema bounds the output; the input\'s strings only at 20000, so a long name is cut, never refused by the runtime', () => {
@@ -279,7 +282,7 @@ test('every output string is bounded, and the output validates against the schem
 
 test('a login over 39 characters is refused, never cut; errors over 200 are refused', async () => {
   const f = fixture();
-  await assert.rejects(assemble({...f, ownerHint: {logins: ['l'.repeat(40)], why: ['w']}}), (e) => e.code === 'ARGUMENTS_INVALID');
+  await assert.rejects(assemble({...f, ownerHint: {logins: ['l'.repeat(40)], why: ['w']}}), (e) => e.code === 'INPUT_REJECTED');
   const schema = require('../schema.json').reportService.assemble;
   assert.strictEqual(schema.input.properties.errors.maxItems, 200);
   assert.strictEqual(schema.output.properties.errors.maxItems, 200);

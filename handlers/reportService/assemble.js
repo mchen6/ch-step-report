@@ -23,24 +23,51 @@ const MAX_UNAVAILABLE = 50;
 // of it. Scanned out from each @, so it is linear in the text's length; the
 // regular expression it replaces (/[^\s@]+@[^\s@]+\.[^\s@]+/) was
 // quadratic (a 40 KB string took about 3 s; the reviewer, 2026-11-13).
-// A URL's user name is not an address: an @ whose run starts with a scheme's
-// "://" (ssh://git@github.com/o/r.git, postgres://app@db.internal/x), which
-// ch-step-redact keeps on purpose (the reviewer's pre-work high on pack 1,
-// P3, 2026-11-21: a common git error failed the whole report).
+// Not an address (the reviewer's pre-work high on pack 1, P3, 2026-11-21,
+// and the medium on its fix): ch-step-redact keeps a URL's user name on
+// purpose, so a common git or database error must not fail the whole
+// report. Two forms only:
+// - the @ that ends a URL's userinfo, under a scheme where a user name is
+//   normal: the first @ after "<scheme>://", before any / ? # or @
+//   (ssh://git@github.com/o/r.git, postgres://app@db.internal/x);
+// - git's scp form, the user "git" and then a host and a colon
+//   (git@github.com:o/r.git; "git@github.com: Permission denied").
+// An @ anywhere else -- after the authority, a second one, under a made-up
+// scheme, another scp user -- is read as an address.
+const USER_SCHEMES = new Set(['ssh', 'git', 'git+ssh', 'ssh+git', 'http', 'https', 'ftp', 'ftps', 'sftp', 'postgres', 'postgresql',
+  'mysql', 'mariadb', 'mongodb', 'mongodb+srv', 'redis', 'rediss', 'amqp', 'amqps', 'ldap', 'ldaps', 'smtp', 'smtps', 'imap', 'imaps']);
+const SCHEME_CHAR = /[A-Za-z0-9+.-]/;
+const USER_CHAR = /[A-Za-z0-9._-]/;
 const isPart = (c) => c !== '@' && !/\s/.test(c);
+// One pass: `authority` is set just after a known scheme's "://" and
+// cleared at the first / ? # @ or space after it. Each look back (the
+// scheme before ://, the user before @) stops at a character the other
+// does not take, and each @'s domain at the next @ or space, so the whole
+// is linear in the text.
 function hasAddress(text) {
-  // (one pass: the current run of non-space characters, and whether a
-  // scheme's "://" came earlier in it; each @'s domain is scanned up to the
-  // next @ or space, so the whole is linear)
-  let scheme = false;
+  let authority = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (/\s/.test(c)) { scheme = false; continue; }
-    if (c === ':' && text[i + 1] === '/' && text[i + 2] === '/') { scheme = true; continue; }
-    if (c !== '@' || i === 0 || !isPart(text[i - 1]) || scheme) continue;
+    if (/\s/.test(c)) { authority = false; continue; }
+    if (c === ':' && text[i + 1] === '/' && text[i + 2] === '/') {
+      let start = i;
+      while (start > 0 && SCHEME_CHAR.test(text[start - 1])) start--;
+      const scheme = text.slice(start, i).toLowerCase();
+      authority = /^[a-z]/.test(scheme) && USER_SCHEMES.has(scheme);
+      i += 2;
+      continue;
+    }
+    if (c === '/' || c === '?' || c === '#') { authority = false; continue; }
+    if (c !== '@') continue;
+    const userinfo = authority;
+    authority = false;
+    if (i === 0 || !isPart(text[i - 1]) || userinfo) continue;
     let end = i + 1;
     while (end < text.length && isPart(text[end])) end++;
     const domain = text.slice(i + 1, end);
+    let u = i;
+    while (u > 0 && USER_CHAR.test(text[u - 1])) u--;
+    if (text.slice(u, i) === 'git' && /^[A-Za-z0-9.-]+:/.test(domain)) continue;
     const dot = domain.indexOf('.', 1);
     if (dot !== -1 && dot < domain.length - 1) return true;
   }

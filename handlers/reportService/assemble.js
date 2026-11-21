@@ -24,41 +24,47 @@ const MAX_UNAVAILABLE = 50;
 // regular expression it replaces (/[^\s@]+@[^\s@]+\.[^\s@]+/) was
 // quadratic (a 40 KB string took about 3 s; the reviewer, 2026-11-13).
 // Not an address (the reviewer's pre-work high on pack 1, P3, 2026-11-21,
-// and the medium on its fix): ch-step-redact keeps a URL's user name on
-// purpose, so a common git or database error must not fail the whole
-// report. Two forms only:
-// - the @ that ends a URL's userinfo, under a scheme where a user name is
-//   normal: the first @ after "<scheme>://", before any / ? # or @
+// and the two mediums on its fix): ch-step-redact keeps a URL's user name
+// on purpose, and common git, package and database errors carry an @, so
+// none of these must fail the whole report:
+// - a URL's userinfo under a scheme where a user name is normal: the @
+//   right after "<scheme>://" and a run of userinfo characters
 //   (ssh://git@github.com/o/r.git, postgres://app@db.internal/x);
-// - git's scp form, the user "git" and then a host and a colon
-//   (git@github.com:o/r.git; "git@github.com: Permission denied").
-// An @ anywhere else -- after the authority, a second one, under a made-up
-// scheme, another scp user -- is read as an address.
+// - git's own user: "git" starting its run, then a host, alone or before a
+//   colon (git@github.com:o/r.git, ssh -T git@github.com);
+// - a version pin: what follows the @ ends in a number (lodash@4.17.99,
+//   bar@v1.2.3);
+// - MySQL's quoted 'user'@'host'.
+// Every other @ before a dotted name is an address, as before.
 const USER_SCHEMES = new Set(['ssh', 'git', 'git+ssh', 'ssh+git', 'http', 'https', 'ftp', 'ftps', 'sftp', 'postgres', 'postgresql',
   'mysql', 'mariadb', 'mongodb', 'mongodb+srv', 'redis', 'rediss', 'amqp', 'amqps', 'ldap', 'ldaps', 'smtp', 'smtps', 'imap', 'imaps']);
 const SCHEME_CHAR = /[A-Za-z0-9+.-]/;
+// userinfo's own characters (RFC 3986's unreserved, %, ':' and the
+// sub-delims that don't also end a token in a log line)
+const USERINFO_CHAR = /[A-Za-z0-9._~%:!$&*+=-]/;
 const USER_CHAR = /[A-Za-z0-9._-]/;
+const RUN_START = /[\s"'(<\[{=,;]/;
 const isPart = (c) => c !== '@' && !/\s/.test(c);
-// One pass: `authority` is set just after a known scheme's "://" and
-// cleared at the first / ? # @ or space after it. Each look back (the
-// scheme before ://, the user before @) stops at a character the other
-// does not take, and each @'s domain at the next @ or space, so the whole
-// is linear in the text.
+// One pass: `authority` holds from just after a known scheme's "://" while
+// only userinfo characters follow. Each look back (the scheme before ://,
+// the user before @) stops at a character the other does not take, and each
+// @'s domain at the next @ or space, so the whole is linear in the text.
 function hasAddress(text) {
   let authority = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (/\s/.test(c)) { authority = false; continue; }
     if (c === ':' && text[i + 1] === '/' && text[i + 2] === '/') {
       let start = i;
       while (start > 0 && SCHEME_CHAR.test(text[start - 1])) start--;
       const scheme = text.slice(start, i).toLowerCase();
-      authority = /^[a-z]/.test(scheme) && USER_SCHEMES.has(scheme);
+      authority = /^[a-z]/.test(scheme) && USER_SCHEMES.has(scheme) && (start === 0 || RUN_START.test(text[start - 1]));
       i += 2;
       continue;
     }
-    if (c === '/' || c === '?' || c === '#') { authority = false; continue; }
-    if (c !== '@') continue;
+    if (c !== '@') {
+      if (authority && !USERINFO_CHAR.test(c)) authority = false;
+      continue;
+    }
     const userinfo = authority;
     authority = false;
     if (i === 0 || !isPart(text[i - 1]) || userinfo) continue;
@@ -67,9 +73,22 @@ function hasAddress(text) {
     const domain = text.slice(i + 1, end);
     let u = i;
     while (u > 0 && USER_CHAR.test(text[u - 1])) u--;
-    if (text.slice(u, i) === 'git' && /^[A-Za-z0-9.-]+:/.test(domain)) continue;
+    const user = text.slice(u, i);
+    const startsRun = u === 0 || RUN_START.test(text[u - 1]);
+    // git's own user, starting its run: before a host alone or a colon
+    if (user === 'git' && startsRun && /^[A-Za-z0-9.-]+(?::|$)/.test(domain)) continue;
+    // MySQL's 'user'@'host'
+    if (text[i - 1] === "'" && domain.startsWith("'")) {
+      const host = domain.slice(1).replace(/'.*$/, '');
+      if (!/\.[A-Za-z]{2,}$/.test(host)) continue;
+    }
+    // an address: a dot with a character on either side, as always -- unless
+    // its last label is a number (a version pin, lodash@4.17.99; an IP)
     const dot = domain.indexOf('.', 1);
-    if (dot !== -1 && dot < domain.length - 1) return true;
+    if (dot === -1 || dot >= domain.length - 1) continue;
+    const last = domain.replace(/[.,;:)\]'"!?]+$/, '').split('.').pop();
+    if (/^\d+$/.test(last)) continue;
+    return true;
   }
   return false;
 }

@@ -23,7 +23,7 @@ const fixture = () => ({
 
 test('assemble writes the summary sentence', () => {
   assert.strictEqual(assembleReport(fixture()).summary,
-    "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
+    "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
 });
 
 test('the summary for each verdict and edge', () => {
@@ -31,20 +31,20 @@ test('the summary for each verdict and edge', () => {
     const f = fixture();
     return summaryOf({...f.run, ...patch.run}, patch.history === null ? null : {...f.history, ...patch.history});
   };
-  assert.strictEqual(s({history: {verdict: 'new', count: 1}}), "The run's failing step (named in run.step) failed with a new signature, seen only in this run of the last 50 runs.");
-  assert.strictEqual(s({history: {verdict: 'flaky', count: 3}}), "The run's failing step (named in run.step) failed with a flaky signature seen 3 times in the last 50 runs, first at a1b2c3d.");
-  assert.strictEqual(s({history: {verdict: 'recurring', count: 1}}), "The run's failing step (named in run.step) failed with a recurring signature seen once in the last 50 runs, at a1b2c3d.");
+  assert.strictEqual(s({history: {verdict: 'new', count: 1}}), "The triaged job's failing step (named in run.step) failed with a new signature, seen only in this run of the last 50 runs.");
+  assert.strictEqual(s({history: {verdict: 'flaky', count: 3}}), "The triaged job's failing step (named in run.step) failed with a flaky signature seen 3 times in the last 50 runs, first at a1b2c3d.");
+  assert.strictEqual(s({history: {verdict: 'recurring', count: 1}}), "The triaged job's failing step (named in run.step) failed with a recurring signature seen once in the last 50 runs, at a1b2c3d.");
   assert.strictEqual(s({run: {step: null}}), 'The job failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.');
-  assert.strictEqual(s({history: null}), "The run's failing step (named in run.step) failed; it has no failure history: its log was not read (expired, unavailable or over the log cap).");
+  assert.strictEqual(s({history: null}), "The triaged job's failing step (named in run.step) failed; it has no failure history: its log was not read (expired, unavailable or over the log cap).");
   // (the name is never quoted, whatever its shape)
-  assert.strictEqual(s({run: {step: 'Run a\n  b'}}), "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.");
+  assert.strictEqual(s({run: {step: 'Run a\n  b'}}), "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.");
 });
 
 // From /code-review medium on PR #8.
 test('the summary counts the runs that were in the window, not the window asked for', () => {
   const f = fixture();
   f.coverage.runsListed = 12;
-  assert.strictEqual(assembleReport(f).summary, "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 12 runs, first at a1b2c3d; 1 log expired.");
+  assert.strictEqual(assembleReport(f).summary, "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 12 runs, first at a1b2c3d; 1 log expired.");
 });
 
 test('assemble keeps field order', () => {
@@ -96,14 +96,14 @@ test('the module is a part: never listed', () => {
 // Task 9 (reviewer, 2026-11-11): coverage states truncated and unavailable logs, not only expired ones.
 test('the summary says how many logs were truncated or unavailable, only when there were any', () => {
   const f = fixture();
-  assert.strictEqual(assembleReport(f).summary, "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
+  assert.strictEqual(assembleReport(f).summary, "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
   const s = (logsTruncated, unavailable) => assembleReport({...f, coverage: {...f.coverage, logsTruncated, logsUnavailable: unavailable}}).summary;
   // the fixture has one expired log
-  assert.strictEqual(s(2, [{runId: '7', job: 'test (24)'}]), "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired, 2 truncated, 1 unavailable.");
-  assert.strictEqual(s(1, []), "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired, 1 truncated.");
+  assert.strictEqual(s(2, [{runId: '7', job: 'test (24)'}]), "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired, 2 truncated, 1 unavailable.");
+  assert.strictEqual(s(1, []), "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired, 1 truncated.");
   const none = (patch) => assembleReport({...f, coverage: {...f.coverage, logsExpired: 0, ...patch}}).summary;
-  assert.strictEqual(none({}), "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.");
-  assert.strictEqual(none({logsUnavailable: [{runId: '7', job: 'a'}, {runId: '8', job: 'b'}]}), "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 2 logs unavailable.");
+  assert.strictEqual(none({}), "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.");
+  assert.strictEqual(none({logsUnavailable: [{runId: '7', job: 'a'}, {runId: '8', job: 'b'}]}), "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 2 logs unavailable.");
 });
 
 test('the unavailable logs are listed by run and job, in the order given', () => {
@@ -116,7 +116,7 @@ test('the unavailable logs are listed by run and job, in the order given', () =>
 test('with no history the sentence still says what could not be seen', () => {
   const f = fixture();
   const out = assembleReport({...f, history: null, coverage: {...f.coverage, logsExpired: 0, logsTruncated: 3, logsUnavailable: [{runId: '9', job: 'test'}]}});
-  assert.strictEqual(out.summary, "The run's failing step (named in run.step) failed; it has no failure history: its log was not read (expired, unavailable or over the log cap); 3 logs truncated, 1 unavailable.");
+  assert.strictEqual(out.summary, "The triaged job's failing step (named in run.step) failed; it has no failure history: its log was not read (expired, unavailable or over the log cap); 3 logs truncated, 1 unavailable.");
 });
 
 test('a coverage from before 0.2.0 assembles, with no unavailable logs, rather than crashing', () => {
@@ -132,12 +132,12 @@ test('a rebuilt history is in coverage and the summary; absent, it is false and 
   const f = fixture();
   const rebuilt = assembleReport({...f, coverage: {...f.coverage, historyRebuilt: true}});
   assert.strictEqual(rebuilt.coverage.historyRebuilt, true);
-  assert.strictEqual(rebuilt.summary, "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired; history rebuilt (the failure signature changed).");
+  assert.strictEqual(rebuilt.summary, "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired; history rebuilt (the failure signature changed).");
   const plain = assembleReport(f);
   assert.strictEqual(plain.coverage.historyRebuilt, false);
   assert.doesNotMatch(plain.summary, /rebuilt/);
   const none = assembleReport({...f, coverage: {...f.coverage, logsExpired: 0, historyRebuilt: true}});
-  assert.strictEqual(none.summary, "The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; history rebuilt (the failure signature changed).");
+  assert.strictEqual(none.summary, "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; history rebuilt (the failure signature changed).");
 });
 
 test('the handler takes historyRebuilt as a boolean and refuses anything else', async () => {
@@ -171,14 +171,14 @@ test('every failed job is listed, in the order given, after the run', () => {
 
 test('with more than one failed job, the summary says how many and that the pack cannot tell which ones gate the run', () => {
   assert.strictEqual(assembleReport({...fixture(), failedJobs: JOBS}).summary,
-    "3 jobs failed; the pack cannot tell which ones gate the run. The run's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
+    "3 jobs failed; the pack cannot tell which ones gate the run. The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d; 1 log expired.");
   assert.strictEqual(assembleReport({...fixture(), failedJobs: JOBS.slice(0, 1)}).summary, assembleReport(fixture()).summary, 'one job: no note');
 });
 
 test('an input from before 0.4.0 (no failedJobs) assembles with failed_jobs null (not known) and no note', () => {
   const out = assembleReport(fixture());
   assert.strictEqual(out.failed_jobs, null);
-  assert.strictEqual(out.summary.startsWith("The run's failing step "), true);
+  assert.strictEqual(out.summary.startsWith("The triaged job's failing step "), true);
 });
 
 test('the handler checks failedJobs: a name, step and first error with no address, the last two text or null, at most 1000', async () => {
@@ -353,12 +353,31 @@ test('the URL exemption is the userinfo\'s @ only, under a known scheme; git@hos
     'https://a@b.c@d.example', 'bob@corp.example: hello', 'deploy@server.example:/srv']) {
     assert.strictEqual(hasAddress(s), true, s);
   }
-  const started = Date.now();
-  for (const s of ['://' + 'a@b'.repeat(13000), 'a://'.repeat(10000) + '@', 'https://' + 'a'.repeat(40000) + '@', 'git@'.repeat(10000), 'ssh://'.repeat(6000) + 'git@x.y']) hasAddress(s);
-  assert.ok(Date.now() - started < 200, `${Date.now() - started} ms`);
+  // linear: four times the input, about four times the time (a quadratic
+  // scan would take sixteen), whatever the machine's load
+  const shapes = (n) => ['://' + 'a@b'.repeat(n), 'a://'.repeat(n) + '@', 'https://' + 'a'.repeat(3 * n) + '@', 'git@'.repeat(n), 'ssh://'.repeat(n) + 'git@x.y', 'https://a,'.repeat(n) + 'b@c.example'];
+  const time = (n) => { const t0 = process.hrtime.bigint(); for (let k = 0; k < 3; k++) for (const s of shapes(n)) hasAddress(s); return Number(process.hrtime.bigint() - t0); };
+  time(2000);
+  const ratio = time(16000) / Math.max(1, time(4000));
+  assert.ok(ratio < 9, `4x the input took ${ratio.toFixed(1)}x the time`);
 });
 
-test('the summary ties the step it names to the run', () => {
+// (the medium on the second round) the userinfo runs only over its own
+// characters; "git" starts its run; git@host as ssh -T names it; a version
+// pin and MySQL's 'user'@'host' are no addresses; anything else is
+test('the URL userinfo, git@host and the common error shapes; an address behind punctuation is still refused', () => {
+  const {hasAddress} = assemble;
+  for (const s of ['+ ssh -T git@github.com', 'npm ERR! notarget No matching version found for lodash@4.17.99.', 'go: github.com/foo/bar@v1.2.3: invalid version',
+    "ERROR 1045 (28000): Access denied for user 'app'@'172.17.0.1' (using password: YES)", "Access denied for user 'app'@'localhost'"]) {
+    assert.strictEqual(hasAddress(s), false, s);
+  }
+  for (const s of ['{"u":"https://","by":"bob@corp.example"}', 'https://h.invalid,bob@corp.example', 'mirrors: https://a.invalid;bob@corp.example',
+    'https://"bob@corp.example"', 'alice+git@corp.example: hello', 'x/git@corp.example:y', "user 'app'@'db.example'"]) {
+    assert.strictEqual(hasAddress(s), true, s);
+  }
+});
+
+test('the summary ties the step it names to the triaged job', () => {
   const f = fixture();
-  assert.match(assembleReport({...f, failedJobs: [{name: 'a', step: 'x', firstError: null}, {name: 'b', step: 'y', firstError: null}]}).summary, /The run's failing step \(named in run\.step\)/);
+  assert.match(assembleReport({...f, failedJobs: [{name: 'a', step: 'x', firstError: null}, {name: 'b', step: 'y', firstError: null}]}).summary, /The triaged job's failing step \(named in run\.step\)/);
 });

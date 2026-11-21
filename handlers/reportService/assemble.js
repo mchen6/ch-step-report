@@ -95,11 +95,14 @@ const HOST_END = /[\s/?#:,;"'()<>[\]`=&!*+|\\{}^]/;
 // xn--: the medium on the high round)
 const LABEL_CHAR = /[\p{L}\p{M}\p{N}-]/u;
 const LAST_LABEL = /^(?:[\p{L}\p{M}]{2,}|xn--[A-Za-z0-9-]+)$/iu;
-function addressHost(text, at) {
+// (-> whether it is an address's; with hostEnd, also where the host ended,
+// for the password rule below)
+function addressHost(text, at, out = null) {
   let i = at + 1;
   if (text[i] === "'" || text[i] === '"') i++;
   const start = i;
   while (i < text.length && !isAt(text[i]) && !HOST_END.test(text[i])) i++;
+  if (out != null) out.hostEnd = i;
   let end = i;
   while (end > start && text[end - 1] === '.') end--;
   const host = text.slice(start, end);
@@ -121,8 +124,14 @@ function hasAddress(input) {
   const text = plain(input);
   let authority = false;
   let host = false;
+  // (a redact <email> tag earlier in this run of non-space characters: the
+  // user part was an address, so an @ after it is one's too -- the
+  // reviewer's follow-up on #7: <email>:hunter2@db)
+  let emailInRun = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
+    if (/\s/.test(c)) emailInRun = false;
+    else if (c === '<' && text.startsWith('<email>', i)) emailInRun = true;
     if (c === ':' && text[i + 1] === '/' && text[i + 2] === '/') {
       let start = i;
       while (start > 0 && SCHEME_CHAR.test(text[start - 1])) start--;
@@ -143,8 +152,9 @@ function hasAddress(input) {
       if (!USERINFO_CHAR.test(c)) authority = false;
       continue;
     }
-    // an @ in the host part, after the user name's: an address
-    if (host) return true;
+    // an @ in the host part, after the user name's, or after a masked
+    // address in its run: an address
+    if (host || emailInRun) return true;
     if (c === ENC_AT) {
       // (an encoded @ is an address's, wherever it is)
       authority = false;
@@ -159,7 +169,12 @@ function hasAddress(input) {
     let u = i;
     while (u > 0 && USER_CHAR.test(text[u - 1])) u--;
     if (text.slice(u, i) === 'git' && (u === 0 || GIT_START.test(text[u - 1])) && /^[A-Za-z0-9.-]+(?::|'s(?![A-Za-z]))/.test(text.slice(i + 1, i + 260))) continue;
-    if (addressHost(text, i)) return true;
+    const at = {};
+    if (addressHost(text, i, at)) return true;
+    // a host followed by ':' and a non-digit: a password, not a port
+    // (svc@db:hunter2@x), never a port (svc@db:5432)
+    const next = text[at.hostEnd + 1];
+    if (text[at.hostEnd] === ':' && next != null && !/[\d\s]/.test(next)) return true;
   }
   return false;
 }

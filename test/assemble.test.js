@@ -294,10 +294,12 @@ test('the address check is linear: a 40 KB string with many @ takes milliseconds
   const started = Date.now();
   for (const s of ['a'.repeat(40000), '@'.repeat(40000), `${'a@'.repeat(20000)}`, `${'a@b'.repeat(13000)}`, 'x'.repeat(39999) + '@']) hasAddress(s);
   assert.ok(Date.now() - started < 200, `${Date.now() - started} ms`);
-  const OLD = /[^\s@]+@[^\s@]+\.[^\s@]+/;
-  for (const s of ['alice@example.com', 'deploy (alice@example.com)', 'a@b.c', '@b.c', 'a@.c', 'a@b.', 'a@b', 'x a @b.c', 'a@@b.c', 'mail a@b.co.uk now',
-    'two@ats@x.y', 'a@b .c', 'Error: denied for bob@corp.example', 'no address here', 'a@b.c@d', '.@..', 'a@b..c']) {
-    assert.strictEqual(hasAddress(s), OLD.test(s), s);
+  // (an address: a host with a dot whose last label is letters, two or more,
+  // or an IDN's xn--; the old pattern's other cases)
+  for (const [s, want] of [['alice@example.com', true], ['deploy (alice@example.com)', true], ['a@b.co', true], ['@b.co', false], ['a@.co', false], ['a@b.', false],
+    ['a@b', false], ['x a @b.co', false], ['a@@b.co', false], ['mail a@b.co.uk now', true], ['two@ats@x.yz', true], ['a@b .co', false],
+    ['Error: denied for bob@corp.example', true], ['no address here', false], ['a@b.co@d', true], ['.@..', false], ['bob@corp.xn--p1ai', true], ['bob@163.com', true]]) {
+    assert.strictEqual(hasAddress(s), want, s);
   }
 });
 
@@ -349,13 +351,13 @@ test('the URL exemption is the userinfo\'s @ only, under a known scheme; git@hos
     assert.strictEqual(hasAddress(s), false, s);
   }
   for (const s of ['https://h.invalid/?email=bob@corp.example', 'ssh://git@github.com/o/r.git,bob@corp.example',
-    '{"u":"ssh://git@github.com/o/r.git","by":"bob@corp.example"}', 'x://bob@corp.example', 'see://bob@corp.example', 'a://@b.c',
+    '{"u":"ssh://git@github.com/o/r.git","by":"bob@corp.example"}', 'x://bob@corp.example', 'see://bob@corp.example', 'a://@b.co',
     'https://a@b.c@d.example', 'bob@corp.example: hello', 'deploy@server.example:/srv']) {
     assert.strictEqual(hasAddress(s), true, s);
   }
   // linear: four times the input, about four times the time (a quadratic
   // scan would take sixteen), whatever the machine's load
-  const shapes = (n) => ['://' + 'a@b'.repeat(n), 'a://'.repeat(n) + '@', 'https://' + 'a'.repeat(3 * n) + '@', 'git@'.repeat(n), 'ssh://'.repeat(n) + 'git@x.y', 'https://a,'.repeat(n) + 'b@c.example'];
+  const shapes = (n) => ['://' + 'a@b'.repeat(n), 'a://'.repeat(n) + '@', 'https://' + 'a'.repeat(3 * n) + '@', 'git@'.repeat(n), 'ssh://'.repeat(n) + 'git@x.y', 'https://a,'.repeat(n) + 'b@c.example', 'a@a' + '.'.repeat(4 * n) + 'x', 'a@a' + '.;'.repeat(2 * n) + 'x', '<a>@'.repeat(n)];
   const time = (n) => { const t0 = process.hrtime.bigint(); for (let k = 0; k < 3; k++) for (const s of shapes(n)) hasAddress(s); return Number(process.hrtime.bigint() - t0); };
   time(2000);
   const ratio = time(16000) / Math.max(1, time(4000));
@@ -380,4 +382,21 @@ test('the URL userinfo, git@host and the common error shapes; an address behind 
 test('the summary ties the step it names to the triaged job', () => {
   const f = fixture();
   assert.match(assembleReport({...f, failedJobs: [{name: 'a', step: 'x', firstError: null}, {name: 'b', step: 'y', firstError: null}]}).summary, /The triaged job's failing step \(named in run\.step\)/);
+});
+
+// (the third medium) the host is read on its own: a number after an
+// address in the same token hides nothing; version pins of every shape,
+// redact's own tags before an @, git's password prompt and a URL in
+// backticks pass; a quoted host follows the same rule
+test('the host after an @ decides, read on its own: pins, redact tags, git prompts, backticks; an address beside a number is refused', () => {
+  const {hasAddress} = assemble;
+  for (const s of ['go: github.com/x/y@v0.0.0-20210101000000-abcdef012345: invalid version', 'go: github.com/x/y@v2.0.0+incompatible: bad',
+    'npm ERR! notarget No matching version found for foo@1.0.0-beta.', 'npm ERR! peer react@"16.x || 17.x" from foo', 'foo@^1.x',
+    'Unable to update `ssh://git@github.com/o/r.git`', '`git@github.com:o/r.git`', 'url:ssh://git@github.com/o/r', "git@github.com's password:",
+    'fatal: unable to access https://<basicAuth>@github.com/o/r.git', 'push x-access-token:<githubToken>@github.com refused']) {
+    assert.strictEqual(hasAddress(s), false, s);
+  }
+  for (const s of ['["bob@corp.example",1.5]', 'bob@corp.example/1.0', 'bob@corp.example,v1.2', 'mail bob@corp.example;ref=2.3', "'bob'@'corp.xn--p1ai'"]) {
+    assert.strictEqual(hasAddress(s), true, s);
+  }
 });

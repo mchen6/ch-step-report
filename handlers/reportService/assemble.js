@@ -23,19 +23,24 @@ const MAX_UNAVAILABLE = 50;
 // of it. Scanned out from each @, so it is linear in the text's length; the
 // regular expression it replaces (/[^\s@]+@[^\s@]+\.[^\s@]+/) was
 // quadratic (a 40 KB string took about 3 s; the reviewer, 2026-11-13).
-// Not an address (the reviewer's pre-work high on pack 1, P3, 2026-11-21,
-// and the two mediums on its fix): ch-step-redact keeps a URL's user name
-// on purpose, and common git, package and database errors carry an @, so
-// none of these must fail the whole report:
-// - a URL's userinfo under a scheme where a user name is normal: the @
-//   right after "<scheme>://" and a run of userinfo characters
+// Whether an @ is an e-mail address's (the reviewer's pre-work high on
+// pack 1, P3, 2026-11-21, and the mediums on its fix). ch-step-redact
+// masks addresses upstream, so one reaching here fails closed; but common
+// git, package and database errors carry an @, and none of these must fail
+// the whole report. An @ is an address only when the host right after it --
+// a run of host characters, after an optional quote -- has a dot and ends
+// in a label of letters (two or more) or an IDN's xn--, and none of these
+// holds:
+// - it ends a URL's userinfo: right after "<scheme>://" (a scheme where a
+//   user name is normal, starting its run) and userinfo characters
 //   (ssh://git@github.com/o/r.git, postgres://app@db.internal/x);
-// - git's own user: "git" starting its run, then a host, alone or before a
-//   colon (git@github.com:o/r.git, ssh -T git@github.com);
-// - a version pin: what follows the @ ends in a number (lodash@4.17.99,
-//   bar@v1.2.3);
-// - MySQL's quoted 'user'@'host'.
-// Every other @ before a dotted name is an address, as before.
+// - a redact tag is right before it (://<basicAuth>@, <githubToken>@): the
+//   user part is already masked;
+// - git's own user, "git" starting its run (git@github.com:o/r.git, ssh -T
+//   git@github.com, git@github.com's password).
+// So a version pin (lodash@4.17.99, bar@v0.0.0-2021..., react@"16.x"),
+// MySQL's 'app'@'172.17.0.1' and a URL's own @ pass, and an address beside
+// a number in the same token (bob@corp.example/1.0) does not.
 const USER_SCHEMES = new Set(['ssh', 'git', 'git+ssh', 'ssh+git', 'http', 'https', 'ftp', 'ftps', 'sftp', 'postgres', 'postgresql',
   'mysql', 'mariadb', 'mongodb', 'mongodb+srv', 'redis', 'rediss', 'amqp', 'amqps', 'ldap', 'ldaps', 'smtp', 'smtps', 'imap', 'imaps']);
 const SCHEME_CHAR = /[A-Za-z0-9+.-]/;
@@ -43,12 +48,30 @@ const SCHEME_CHAR = /[A-Za-z0-9+.-]/;
 // sub-delims that don't also end a token in a log line)
 const USERINFO_CHAR = /[A-Za-z0-9._~%:!$&*+=-]/;
 const USER_CHAR = /[A-Za-z0-9._-]/;
-const RUN_START = /[\s"'(<\[{=,;]/;
+const HOST_CHAR = /[A-Za-z0-9.-]/;
+const RUN_START = /[\s"'`(<\[{=,;:>]/;
+const TAG_BEFORE = /<[A-Za-z]{1,24}>$/;
 const isPart = (c) => c !== '@' && !/\s/.test(c);
+// The host right after the @ at `at`: -> whether it is an address's.
+// A forward scan of host characters, so linear in the host's length.
+function addressHost(text, at) {
+  let i = at + 1;
+  if (text[i] === "'" || text[i] === '"') i++;
+  const start = i;
+  while (i < text.length && HOST_CHAR.test(text[i])) i++;
+  let end = i;
+  while (end > start && text[end - 1] === '.') end--;
+  const host = text.slice(start, end);
+  const dot = host.lastIndexOf('.');
+  if (dot <= 0) return false;
+  const last = host.slice(dot + 1);
+  return /^[A-Za-z]{2,}$/.test(last) || /^xn--[A-Za-z0-9-]+$/.test(last);
+}
 // One pass: `authority` holds from just after a known scheme's "://" while
-// only userinfo characters follow. Each look back (the scheme before ://,
-// the user before @) stops at a character the other does not take, and each
-// @'s domain at the next @ or space, so the whole is linear in the text.
+// only userinfo characters (or a redact tag) follow. Each look back (the
+// scheme before ://, the user before @, a tag of at most 26 characters)
+// stops at a character the other does not take, and each host is scanned
+// forward to its first non-host character, so the whole is linear.
 function hasAddress(text) {
   let authority = false;
   for (let i = 0; i < text.length; i++) {
@@ -62,33 +85,17 @@ function hasAddress(text) {
       continue;
     }
     if (c !== '@') {
-      if (authority && !USERINFO_CHAR.test(c)) authority = false;
+      if (authority && !USERINFO_CHAR.test(c) && c !== '<' && c !== '>') authority = false;
       continue;
     }
     const userinfo = authority;
     authority = false;
     if (i === 0 || !isPart(text[i - 1]) || userinfo) continue;
-    let end = i + 1;
-    while (end < text.length && isPart(text[end])) end++;
-    const domain = text.slice(i + 1, end);
+    if (TAG_BEFORE.test(text.slice(Math.max(0, i - 26), i))) continue;
     let u = i;
     while (u > 0 && USER_CHAR.test(text[u - 1])) u--;
-    const user = text.slice(u, i);
-    const startsRun = u === 0 || RUN_START.test(text[u - 1]);
-    // git's own user, starting its run: before a host alone or a colon
-    if (user === 'git' && startsRun && /^[A-Za-z0-9.-]+(?::|$)/.test(domain)) continue;
-    // MySQL's 'user'@'host'
-    if (text[i - 1] === "'" && domain.startsWith("'")) {
-      const host = domain.slice(1).replace(/'.*$/, '');
-      if (!/\.[A-Za-z]{2,}$/.test(host)) continue;
-    }
-    // an address: a dot with a character on either side, as always -- unless
-    // its last label is a number (a version pin, lodash@4.17.99; an IP)
-    const dot = domain.indexOf('.', 1);
-    if (dot === -1 || dot >= domain.length - 1) continue;
-    const last = domain.replace(/[.,;:)\]'"!?]+$/, '').split('.').pop();
-    if (/^\d+$/.test(last)) continue;
-    return true;
+    if (text.slice(u, i) === 'git' && (u === 0 || RUN_START.test(text[u - 1]))) continue;
+    if (addressHost(text, i)) return true;
   }
   return false;
 }

@@ -527,8 +527,22 @@ test('the last label ends at a non-label character; marks count; all of redact\'
     'user=bob@corp.com%0A', 'bob@corp.भारत', 'bob@corp.ćom']) {
     assert.strictEqual(hasAddress(s), true, JSON.stringify(s));
   }
-  for (const s of ['<email>@corp.example', 'x <phone>@corp.example', 'npm ERR! peer react@16.8.0 from foo']) assert.strictEqual(hasAddress(s), false, s);
+  // (<email>@ is an address's: the reviewer's follow-up on #7, below)
+  for (const s of ['x <phone>@corp.example', 'npm ERR! peer react@16.8.0 from foo']) assert.strictEqual(hasAddress(s), false, s);
   const {cutSummary, SUMMARY_NOTE: N} = require('../lib/report');
   const out = cutSummary('w '.repeat(400));
   assert.ok(out.length <= 500 && out.endsWith(`… ${N}`), out.slice(-90));
+});
+
+// (the reviewer's follow-up on #7, release 1: a credential redact also
+// misses) svc@corp.com:hunter2@db with no scheme: redact masks the address
+// as <email> and keeps the password. An @ is an address's when a redact
+// <email> tag sits earlier in its run, and when the host after it is
+// followed by ':' and a non-digit (a password, not a port).
+test('<email> earlier in the run, or a host followed by a password, makes an @ an address\'s', () => {
+  const {hasAddress} = assemble;
+  for (const s of ['Error: <email>:hunter2@db:5432/app', 'Deploy postgres://<email>:hunter2@db/app', 'svc@db:hunter2@x', 'connect svc@db:pw/app']) {
+    assert.strictEqual(hasAddress(s), true, s);
+  }
+  for (const s of ['git@github.com:o/r.git', 'redis://cache@db:6379/0', 'ssh://git@github.com:22/o/r', 'svc@db:5432']) assert.strictEqual(hasAddress(s), false, s);
 });

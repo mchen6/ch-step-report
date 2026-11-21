@@ -1,6 +1,6 @@
 {
   "name": "@countinghouse/ch-step-report",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "countinghouse step module: the CI triage result assembled, with its summary, every failed job of the run, and a fixed field order.",
   "license": "Apache-2.0",
   "repository": {

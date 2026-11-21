@@ -562,3 +562,27 @@ test('an image digest @sha256:/@sha512: is not an address; other hex runs after 
     assert.strictEqual(hasAddress(s), true, s);
   }
 });
+
+// (the reviewer's final pass on the packs, A6) with the log cap hit, the
+// gaps say so, and a signature is never "seen only in this run": older runs
+// went unread
+test('the log cap is in the gaps, and a capped history never says "seen only in this run"', () => {
+  const f = fixture();
+  const capped = {...f.coverage, logsExpired: 0, capHit: true};
+  const neu = summaryOf(f.run, {...f.history, verdict: 'new', count: 1}, capped);
+  assert.strictEqual(neu, "The triaged job's failing step (named in run.step) failed with a signature not seen in any other run whose log was read, of the last 50 runs; the log cap was hit, so some logs were not read.");
+  assert.match(summaryOf(f.run, f.history, capped), /seen 4 times in the last 50 runs, first at a1b2c3d; the log cap was hit, so some logs were not read\.$/);
+  assert.match(summaryOf(f.run, null, capped), /; the log cap was hit, so some logs were not read\.$/);
+  assert.ok(!/log cap/.test(summaryOf(f.run, f.history, {...capped, capHit: false})));
+});
+
+// (A7) a failed run with no job failed before any job ran: no log to read,
+// which is not a log that went unread
+test('a run with no failed job and no history failed before any job ran', () => {
+  const f = fixture();
+  const out = assembleReport({...f, run: {...f.run, job: '(no failed job)', step: null}, failedJobs: [], errors: [], history: null, ownerHint: null});
+  assert.strictEqual(out.summary, 'The run failed before any job ran (an invalid workflow file or a startup failure), so there is no log to read; 1 log expired.' + NOTE);
+  // a job whose log was not read is still said so
+  assert.match(assembleReport({...f, history: null, failedJobs: [{name: 'test', step: null, firstError: null}]}).summary, /its log was not read/);
+  assert.match(assembleReport({...f, history: null}).summary, /its log was not read/);
+});

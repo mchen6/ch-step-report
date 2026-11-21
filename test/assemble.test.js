@@ -37,7 +37,7 @@ test('the summary for each verdict and edge', () => {
   assert.strictEqual(s({history: {verdict: 'flaky', count: 3}}), "The triaged job's failing step (named in run.step) failed with a flaky signature seen 3 times in the last 50 runs, first at a1b2c3d.");
   assert.strictEqual(s({history: {verdict: 'recurring', count: 1}}), "The triaged job's failing step (named in run.step) failed with a recurring signature seen once in the last 50 runs, at a1b2c3d.");
   assert.strictEqual(s({run: {step: null}}), 'The job failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.');
-  assert.strictEqual(s({history: null}), "The triaged job's failing step (named in run.step) failed; it has no failure history: its log was not read (expired, unavailable or over the log cap).");
+  assert.strictEqual(s({history: null}), "The triaged job's failing step (named in run.step) failed; it has no failure history: its log was not read (expired or unavailable).");
   // (the name is never quoted, whatever its shape)
   assert.strictEqual(s({run: {step: 'Run a\n  b'}}), "The triaged job's failing step (named in run.step) failed with a recurring signature seen 4 times in the last 50 runs, first at a1b2c3d.");
 });
@@ -117,7 +117,7 @@ test('the unavailable logs are listed by run and job, in the order given', () =>
 test('with no history the sentence still says what could not be seen', () => {
   const f = fixture();
   const out = assembleReport({...f, history: null, coverage: {...f.coverage, logsExpired: 0, logsTruncated: 3, logsUnavailable: [{runId: '9', job: 'test'}]}});
-  assert.strictEqual(out.summary, "The triaged job's failing step (named in run.step) failed; it has no failure history: its log was not read (expired, unavailable or over the log cap); 3 logs truncated, 1 unavailable." + NOTE);
+  assert.strictEqual(out.summary, "The triaged job's failing step (named in run.step) failed; it has no failure history: its log was not read (expired or unavailable); 3 logs truncated, 1 unavailable." + NOTE);
 });
 
 test('a coverage from before 0.2.0 assembles, with no unavailable logs, rather than crashing', () => {
@@ -285,7 +285,17 @@ test('every output string is bounded, and the output validates against the schem
 test('a login over 39 characters is refused, never cut; errors over 200 are refused', async () => {
   const f = fixture();
   await assert.rejects(assemble({...f, ownerHint: {logins: ['l'.repeat(40)], why: ['w']}}), (e) => e.code === 'INPUT_REJECTED');
+  // (an app's bot login is 39 plus "[bot]": the final pass, s3 C2)
+  const bot = `${'a'.repeat(39)}[bot]`;
+  assert.deepStrictEqual((await assemble({...f, ownerHint: {logins: [bot], why: ['w']}})).output.owner_hint.logins, [bot]);
+  await assert.rejects(assemble({...f, ownerHint: {logins: [`${'a'.repeat(40)}[bot]`], why: ['w']}}), (e) => e.code === 'INPUT_REJECTED');
+  await assert.rejects(assemble({...f, ownerHint: {logins: [`${'a'.repeat(35)}[bat]`], why: ['w']}}), (e) => e.code === 'INPUT_REJECTED');
   const schema = require('../schema.json').reportService.assemble;
+  for (const io of ['input', 'output']) {
+    const logins = io === 'input' ? schema.input.properties.ownerHint : schema.output.properties.owner_hint;
+    const items = JSON.stringify(logins).match(/"logins":\{[^}]*"items":\{[^}]*\}/)[0];
+    assert.match(items, /"maxLength":44/, io);
+  }
   assert.strictEqual(schema.input.properties.errors.maxItems, 200);
   assert.strictEqual(schema.output.properties.errors.maxItems, 200);
 });
@@ -545,4 +555,71 @@ test('<email> earlier in the run, or a host followed by a password, makes an @ a
     assert.strictEqual(hasAddress(s), true, s);
   }
   for (const s of ['git@github.com:o/r.git', 'redis://cache@db:6379/0', 'ssh://git@github.com:22/o/r', 'svc@db:5432']) assert.strictEqual(hasAddress(s), false, s);
+});
+
+// (the reviewer's final pass on the packs, A3) an image digest is no
+// password: `image@sha256:<64 hex>` (and sha512's 128) is an image
+// reference, never an address. A hex run of any other length is no digest.
+test('an image digest @sha256:/@sha512: is not an address; other hex runs after a host still are', () => {
+  const {hasAddress} = assemble;
+  const d256 = 'a3' + '9f'.repeat(31);
+  const d512 = 'c0'.repeat(64);
+  for (const s of [`#2 ERROR: docker.io/library/node:20-slim@sha256:${d256}: not found`, `Unable to find image 'postgres@sha256:${d256}' locally`,
+    `Run docker://ghcr.io/acme/lint@sha256:${d256}`, `manifest for ghcr.io/acme/app@sha512:${d512} not found`, `x@SHA256:${d256.toUpperCase()}`]) {
+    assert.strictEqual(hasAddress(s), false, s);
+  }
+  for (const s of [`svc@sha256:${d256.slice(0, 63)}@db`, `svc@sha256:${d256}z`, 'svc@sha256:deadbeef@db', `svc@db:${d256}`, `bob@corp.example sha256:${d256}`]) {
+    assert.strictEqual(hasAddress(s), true, s);
+  }
+});
+
+// (the reviewer's final pass on the packs, A6) with the log cap hit, the
+// gaps say so, and a signature is never "seen only in this run": older runs
+// went unread
+test('the log cap is in the gaps, and a capped history never says "seen only in this run"', () => {
+  const f = fixture();
+  const capped = {...f.coverage, logsExpired: 0, capHit: true};
+  const neu = summaryOf(f.run, {...f.history, verdict: 'new', count: 1}, capped);
+  assert.strictEqual(neu, "The triaged job's failing step (named in run.step) failed with a signature not seen in any other run whose log was read, of the last 50 runs; the log cap was hit, so some logs were not read.");
+  assert.match(summaryOf(f.run, f.history, capped), /seen 4 times in the last 50 runs, first at a1b2c3d; the log cap was hit, so some logs were not read\.$/);
+  assert.match(summaryOf(f.run, null, capped), /; the log cap was hit, so some logs were not read\.$/);
+  assert.ok(!/log cap/.test(summaryOf(f.run, f.history, {...capped, capHit: false})));
+});
+
+// (A7) a failed run with no job failed before any job ran: no log to read,
+// which is not a log that went unread
+test('a run with no failed job and no history failed before any job ran', () => {
+  const f = fixture();
+  const out = assembleReport({...f, run: {...f.run, job: '(no failed job)', step: null}, failedJobs: [], errors: [], history: null, ownerHint: null});
+  assert.strictEqual(out.summary, 'The run failed before any job ran (an invalid workflow file or a startup failure), so there is no log to read; in the history: 1 log expired.' + NOTE);
+  // a job whose log was not read is still said so
+  assert.match(assembleReport({...f, history: null, failedJobs: [{name: 'test', step: null, firstError: null}]}).summary, /its log was not read/);
+  assert.match(assembleReport({...f, history: null}).summary, /its log was not read/);
+});
+
+// (the medium on this PR) a digest the 500-character cut split is still a
+// digest; a password after a whole digest is still a password
+test('a digest cut by the …, and a password written after a digest', () => {
+  const {hasAddress} = assemble;
+  const d256 = 'a3' + '9f'.repeat(31);
+  assert.strictEqual(hasAddress(`x node:20@sha256:${d256.slice(0, 40)}…`), false);
+  assert.strictEqual(hasAddress(`x node:20@sha512:${'c0'.repeat(30)}…`), false);
+  assert.strictEqual(hasAddress(`svc@sha256:${d256.slice(0, 40)}…x`), true, 'the … ends the text only');
+  assert.strictEqual(hasAddress(`svc@sha256:${d256}:hunter2@db`), true);
+  assert.strictEqual(hasAddress(`img@sha256:${d256}: not found`), false);
+  assert.strictEqual(hasAddress(`img@sha256:${d256}:`), false);
+});
+
+// (the medium) "failed before any job ran" only when the run names no job
+// and no step: an empty list beside a named job is a log not read; and
+// the gaps after it are the history's
+test('failed before any job ran needs no job named; its gaps are the history\'s', () => {
+  const f = fixture();
+  const named = assembleReport({...f, failedJobs: [], errors: [], history: null, ownerHint: null});
+  assert.match(named.summary, /its log was not read/);
+  const none = assembleReport({...f, run: {...f.run, job: '(no failed job)', step: null}, failedJobs: [], errors: [], history: null, ownerHint: null});
+  assert.match(none.summary, /^The run failed before any job ran \(an invalid workflow file or a startup failure\), so there is no log to read; in the history: 1 log expired\./);
+  // (the target's log is always read: a cap never stops it, so the sentence
+  // names no cap; the gap says when a cap stopped others)
+  assert.ok(!/over the log cap/.test(summaryOf(f.run, null, {...f.coverage, capHit: true})));
 });

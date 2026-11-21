@@ -23,13 +23,24 @@ const MAX_UNAVAILABLE = 50;
 // of it. Scanned out from each @, so it is linear in the text's length; the
 // regular expression it replaces (/[^\s@]+@[^\s@]+\.[^\s@]+/) was
 // quadratic (a 40 KB string took about 3 s; the reviewer, 2026-11-13).
+// A URL's user name is not an address: an @ whose run starts with a scheme's
+// "://" (ssh://git@github.com/o/r.git, postgres://app@db.internal/x), which
+// ch-step-redact keeps on purpose (the reviewer's pre-work high on pack 1,
+// P3, 2026-11-21: a common git error failed the whole report).
 const isPart = (c) => c !== '@' && !/\s/.test(c);
 function hasAddress(text) {
-  for (let at = text.indexOf('@'); at !== -1; at = text.indexOf('@', at + 1)) {
-    if (at === 0 || !isPart(text[at - 1])) continue;
-    let end = at + 1;
+  // (one pass: the current run of non-space characters, and whether a
+  // scheme's "://" came earlier in it; each @'s domain is scanned up to the
+  // next @ or space, so the whole is linear)
+  let scheme = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (/\s/.test(c)) { scheme = false; continue; }
+    if (c === ':' && text[i + 1] === '/' && text[i + 2] === '/') { scheme = true; continue; }
+    if (c !== '@' || i === 0 || !isPart(text[i - 1]) || scheme) continue;
+    let end = i + 1;
     while (end < text.length && isPart(text[end])) end++;
-    const domain = text.slice(at + 1, end);
+    const domain = text.slice(i + 1, end);
     const dot = domain.indexOf('.', 1);
     if (dot !== -1 && dot < domain.length - 1) return true;
   }

@@ -55,7 +55,10 @@ const SCHEME_START = /[\s"'`(<\[{=,;:>]/;
 const GIT_START = /[\s"'`(\[]/;
 // ch-step-redact's own tags (the reviewer's high on #7, L7): no other
 // <letters> stands for a masked user part
-const REDACT_TAGS = new Set(['jwt', 'basicAuth', 'githubToken', 'awsKey', 'token', 'apiKey', 'privateKey', 'secret']);
+// (every tag ch-step-redact 0.2.3 writes, lib/rules.js; the medium on the
+// high round: kept in step with it by hand -- this part takes no dependency
+// on redact)
+const REDACT_TAGS = new Set(['jwt', 'basicAuth', 'githubToken', 'awsKey', 'token', 'apiKey', 'privateKey', 'secret', 'email', 'phone', 'card', 'ipv4']);
 // The text as an address is read (the fifth and sixth mediums on the P3
 // fix): one pass over a fixed map, never NFKC (whose expansions cost 60
 // times as much on hostile input). A dot's lookalikes (． 。 ｡ ․ ﹒, and the
@@ -86,7 +89,12 @@ function tagBefore(text, at) {
 // (any script), or an IDN's xn-- (the reviewer's high on #7, L8: a version
 // pin, react@16.8.0, is none). A forward scan, so linear in the host.
 const HOST_END = /[\s/?#:,;"'()<>[\]`=&!*+|\\{}^]/;
-const LAST_LABEL = /^(?:\p{L}{2,}|xn--[A-Za-z0-9-]+)$/iu;
+// (the last label is read up to its first character no label takes -- a
+// colour code, a quote, a dash, _, $ or a further %XX hides nothing -- and
+// is letters with their marks, two or more, in any script, or an IDN's
+// xn--: the medium on the high round)
+const LABEL_CHAR = /[\p{L}\p{M}\p{N}-]/u;
+const LAST_LABEL = /^(?:[\p{L}\p{M}]{2,}|xn--[A-Za-z0-9-]+)$/iu;
 function addressHost(text, at) {
   let i = at + 1;
   if (text[i] === "'" || text[i] === '"') i++;
@@ -97,7 +105,9 @@ function addressHost(text, at) {
   const host = text.slice(start, end);
   const dot = host.lastIndexOf('.');
   if (dot <= 0) return false;
-  return LAST_LABEL.test(host.slice(dot + 1));
+  let stop = dot + 1;
+  while (stop < host.length && LABEL_CHAR.test(host[stop])) stop++;
+  return LAST_LABEL.test(host.slice(dot + 1, stop));
 }
 // One pass. `authority` holds from just after a known scheme's "://" while
 // only userinfo characters (or a whole redact tag) follow; the @ ending it is

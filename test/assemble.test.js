@@ -514,3 +514,21 @@ test('a second @ in one authority is an address; encoded @ runs stay linear; onl
   const long = await assemble({...f, failedJobs: Array.from({length: 300}, (_, i) => ({name: `j${i}`, step: 's', firstError: null})), coverage: {...f.coverage, logsTruncated: 9, logsUnavailable: [{runId: '1', job: 'x'.repeat(200)}]}});
   assert.ok(long.output.summary.endsWith(SUMMARY_NOTE) && long.output.summary.length <= 500, long.output.summary);
 });
+
+// (the medium on #7's high round) a host's last label ends at its first
+// character that no label takes, so a colour code, a quote, a dash, _ or a
+// further %XX after a domain hides nothing; a TLD's combining marks count;
+// redact's own tags include <email>, <phone> and <card>; and a body long
+// enough to be cut keeps the fixed sentence
+test('the last label ends at a non-label character; marks count; all of redact\'s tags; the cut keeps the sentence', () => {
+  const {hasAddress} = assemble;
+  for (const s of ['\x1b[31mbob@corp.com\x1b[0m', 'error for bob@corp.com\x1b[0m', '‘bob@corp.com’', '“bob@corp.com”', '«bob@corp.com»',
+    'bob@corp.com—x', 'bob@corp.com、', 'bob@corp.com$', 'bob@corp.com_id', 'bob@corp.com\u0000', '?to=bob%40corp.com%26cc=x', '?email=bob%40corp.com%3E',
+    'user=bob@corp.com%0A', 'bob@corp.भारत', 'bob@corp.ćom']) {
+    assert.strictEqual(hasAddress(s), true, JSON.stringify(s));
+  }
+  for (const s of ['<email>@corp.example', 'x <phone>@corp.example', 'npm ERR! peer react@16.8.0 from foo']) assert.strictEqual(hasAddress(s), false, s);
+  const {cutSummary, SUMMARY_NOTE: N} = require('../lib/report');
+  const out = cutSummary('w '.repeat(400));
+  assert.ok(out.length <= 500 && out.endsWith(`… ${N}`), out.slice(-90));
+});

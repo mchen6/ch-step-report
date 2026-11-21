@@ -207,7 +207,7 @@
                     "items": {
                       "type": "string",
                       "pattern": "^[^@\\s]+$",
-                      "maxLength": 39
+                      "maxLength": 44
                     }
                   },
                   "why": {
@@ -523,7 +523,7 @@
                     "items": {
                       "type": "string",
                       "pattern": "^[^@\\s]+$",
-                      "maxLength": 39
+                      "maxLength": 44
                     }
                   },
                   "why": {

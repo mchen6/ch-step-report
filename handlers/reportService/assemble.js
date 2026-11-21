@@ -121,6 +121,8 @@ function addressHost(text, at, out = null) {
 // take, and each host scan at the next @ or delimiter, so the whole is
 // linear in the text.
 const DIGEST = /^sha(?:256:[0-9a-f]{64}|512:[0-9a-f]{128})(?![0-9a-z])/i;
+// (plain() has made the cut's … a dot)
+const DIGEST_CUT = /^sha(?:256:[0-9a-f]{0,63}|512:[0-9a-f]{0,127})\.$/i;
 function hasAddress(input) {
   const text = plain(input);
   let authority = false;
@@ -173,7 +175,19 @@ function hasAddress(input) {
     // an image digest, image@sha256:<64 hex> or @sha512:<128 hex>: an image
     // reference, never an address (the reviewer's final pass on the packs,
     // A3: `node:20-slim@sha256:a39f…: not found` withheld every error line)
-    if ((text[i + 1] === 's' || text[i + 1] === 'S') && DIGEST.test(text.slice(i + 1, i + 140))) continue;
+    // (the medium: a password written after a whole digest is still one,
+    // and a digest the cut split -- hex up to the … that ends the text -- is
+    // still a digest)
+    if (text[i + 1] === 's' || text[i + 1] === 'S') {
+      const digest = DIGEST.exec(text.slice(i + 1, i + 140));
+      if (digest != null) {
+        const end = i + 1 + digest[0].length;
+        const next = text[end + 1];
+        if (text[end] === ':' && next != null && !/[\d\s]/.test(next)) return true;
+        continue;
+      }
+      if (text.length - i <= 140 && DIGEST_CUT.test(text.slice(i + 1))) continue;
+    }
     const at = {};
     if (addressHost(text, i, at)) return true;
     // a host followed by ':' and a non-digit: a password, not a port
@@ -224,7 +238,7 @@ function withheld(input, check = unaddressed) {
 const isFailedJobs = (l) => l === undefined || (Array.isArray(l) && l.length <= MAX_FAILED_JOBS && l.every(isFailedJob));
 const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && Array.isArray(o.why)
   && o.logins.length <= 3 && o.logins.length === o.why.length
-  && o.logins.every((l) => typeof l === 'string' && l.length <= LOGIN_MAX && NOT_A_NAME_OR_ADDRESS.test(l)) && o.why.every((w) => typeof w === 'string'));
+  && o.logins.every((l) => typeof l === 'string' && (l.length <= LOGIN_MAX || (l.length <= LOGIN_MAX + BOT.length && l.endsWith(BOT))) && NOT_A_NAME_OR_ADDRESS.test(l)) && o.why.every((w) => typeof w === 'string'));
 
 // Every free-text string the report carries, bounded (the reviewer,
 // 2026-11-13): a name (job, step, workflow, branch) at most 200 characters,
@@ -236,7 +250,7 @@ const NAME_MAX = 200;
 const LINE_MAX = 500;
 // The other strings: ids, a URL, commits and times, cut to their bound too;
 // a login is never cut (a cut one would name someone else), and one over
-// GitHub's 39 characters is refused. A string taken in may be up to
+// GitHub's 39 characters (an app's: 39 and "[bot]") is refused. A string taken in may be up to
 // IN_MAX (the schema's input bound): the runtime refuses longer before this
 // runs, and every check here is linear in it.
 const ID_MAX = 32;
@@ -244,6 +258,8 @@ const URL_MAX = 500;
 const COMMIT_MAX = 64;
 const TIME_MAX = 40;
 const LOGIN_MAX = 39;
+// (an app's bot login: up to 39, then "[bot]" -- the final pass, s3 C2)
+const BOT = '[bot]';
 // Cut at `max` with …, never between the two halves of a surrogate pair.
 function cut(v, max) {
   if (typeof v !== 'string' || v.length <= max) return v;

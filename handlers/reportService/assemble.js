@@ -120,6 +120,7 @@ function addressHost(text, at, out = null) {
 // a tag of at most 24 letters) stops at a character the other does not
 // take, and each host scan at the next @ or delimiter, so the whole is
 // linear in the text.
+const DIGEST = /^sha(?:256:[0-9a-f]{64}|512:[0-9a-f]{128})(?![0-9a-z])/i;
 function hasAddress(input) {
   const text = plain(input);
   let authority = false;
@@ -169,6 +170,10 @@ function hasAddress(input) {
     let u = i;
     while (u > 0 && USER_CHAR.test(text[u - 1])) u--;
     if (text.slice(u, i) === 'git' && (u === 0 || GIT_START.test(text[u - 1])) && /^[A-Za-z0-9.-]+(?::|'s(?![A-Za-z]))/.test(text.slice(i + 1, i + 260))) continue;
+    // an image digest, image@sha256:<64 hex> or @sha512:<128 hex>: an image
+    // reference, never an address (the reviewer's final pass on the packs,
+    // A3: `node:20-slim@sha256:a39f…: not found` withheld every error line)
+    if ((text[i + 1] === 's' || text[i + 1] === 'S') && DIGEST.test(text.slice(i + 1, i + 140))) continue;
     const at = {};
     if (addressHost(text, i, at)) return true;
     // a host followed by ':' and a non-digit: a password, not a port

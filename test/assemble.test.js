@@ -546,3 +546,19 @@ test('<email> earlier in the run, or a host followed by a password, makes an @ a
   }
   for (const s of ['git@github.com:o/r.git', 'redis://cache@db:6379/0', 'ssh://git@github.com:22/o/r', 'svc@db:5432']) assert.strictEqual(hasAddress(s), false, s);
 });
+
+// (the reviewer's final pass on the packs, A3) an image digest is no
+// password: `image@sha256:<64 hex>` (and sha512's 128) is an image
+// reference, never an address. A hex run of any other length is no digest.
+test('an image digest @sha256:/@sha512: is not an address; other hex runs after a host still are', () => {
+  const {hasAddress} = assemble;
+  const d256 = 'a3' + '9f'.repeat(31);
+  const d512 = 'c0'.repeat(64);
+  for (const s of [`#2 ERROR: docker.io/library/node:20-slim@sha256:${d256}: not found`, `Unable to find image 'postgres@sha256:${d256}' locally`,
+    `Run docker://ghcr.io/acme/lint@sha256:${d256}`, `manifest for ghcr.io/acme/app@sha512:${d512} not found`, `x@SHA256:${d256.toUpperCase()}`]) {
+    assert.strictEqual(hasAddress(s), false, s);
+  }
+  for (const s of [`svc@sha256:${d256.slice(0, 63)}@db`, `svc@sha256:${d256}z`, 'svc@sha256:deadbeef@db', `svc@db:${d256}`, `bob@corp.example sha256:${d256}`]) {
+    assert.strictEqual(hasAddress(s), true, s);
+  }
+});

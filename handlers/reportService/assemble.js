@@ -47,9 +47,17 @@ const USER_CHAR = /[A-Za-z0-9._-]/;
 const SCHEME_START = /[\s"'`(<\[{=,;:>]/;
 const GIT_START = /[\s"'`(\[]/;
 const TAG = /^<[A-Za-z]{1,24}>/;
-const TAG_BEFORE = /<[A-Za-z]{1,24}>$/;
+// (a tag right before the @ that starts its run: the whole user part,
+// redact's x-access-token:<githubToken>@ or ://<basicAuth>@ -- never
+// bob.smith<b>@)
+const TAG_BEFORE = /(?:^|[\s"'`(\[:/=,;])<[A-Za-z]{1,24}>$/;
 const isPart = (c) => c !== '@' && !/\s/.test(c);
-function hasAddress(text) {
+// The text as an address is read: NFKC (a full-width ＠ is @), the other
+// full stops a domain is written with, and a percent-encoded @ (%40), so no
+// spelling of an @ or a dot gets past (the fifth medium on the P3 fix).
+const plain = (text) => String(text).normalize('NFKC').replace(/[\u3002\uFF0E\uFF61]/g, '.').replace(/[\uFE6B\uFF20]/g, '@').replace(/%40/gi, '@');
+function hasAddress(input) {
+  const text = plain(input);
   let authority = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -73,7 +81,7 @@ function hasAddress(text) {
     const userinfo = authority;
     authority = false;
     if (i === 0 || !isPart(text[i - 1]) || userinfo) continue;
-    if (TAG_BEFORE.test(text.slice(Math.max(0, i - 26), i))) continue;
+    if (TAG_BEFORE.test(text.slice(Math.max(0, i - 27), i)) || (i <= 26 && /^<[A-Za-z]{1,24}>$/.test(text.slice(0, i)))) continue;
     let end = i + 1;
     while (end < text.length && isPart(text[end])) end++;
     const domain = text.slice(i + 1, end);
@@ -98,15 +106,21 @@ const MAX_FAILED_JOBS = 1000;
 const isFailedJob = (j) => isObject(j) && Object.keys(j).length === 3 && typeof j.name === 'string'
   && (j.step === null || typeof j.step === 'string') && (j.firstError === null || typeof j.firstError === 'string');
 
-// A failed job's name, step or first error, or an unavailable log's job
-// name, that holds an e-mail address is withheld: the note stands in its
-// place and the rest of the report is kept (the reviewer's pre-work high
-// on pack 1, P3). Read on the strings as given, before the cut: a cut can
-// only hide an address, never make one.
+// Every text the triage result carries -- a failed job's name, step and
+// first error, the run's job, step, workflow and branch, each error line,
+// and an unavailable log's job name -- that holds an e-mail address is
+// withheld: the note stands in its place and the rest of the report is kept
+// (the reviewer's pre-work high on pack 1, P3, and the mediums on its fix).
+// Read on the strings as given and again after the cut (bounded): a cut can
+// drop what made a line no address (git@host: cut before its colon).
 const WITHHELD = '(withheld: it holds an e-mail address)';
 const unaddressed = (t) => (typeof t === 'string' && ADDRESS.test(t) ? WITHHELD : t);
 function withheld(input) {
   const out = {...input};
+  if (isObject(input.run)) {
+    out.run = {...input.run, job: unaddressed(input.run.job), step: unaddressed(input.run.step), workflow: unaddressed(input.run.workflow), branch: unaddressed(input.run.branch)};
+  }
+  if (Array.isArray(input.errors)) out.errors = input.errors.map(unaddressed);
   if (Array.isArray(input.failedJobs)) out.failedJobs = input.failedJobs.map((j) => ({name: unaddressed(j.name), step: unaddressed(j.step), firstError: unaddressed(j.firstError)}));
   if (isObject(input.coverage) && Array.isArray(input.coverage.logsUnavailable)) {
     out.coverage = {...input.coverage, logsUnavailable: input.coverage.logsUnavailable.map((u) => ({...u, job: unaddressed(u.job)}))};
@@ -177,7 +191,7 @@ module.exports = async (input, ctx) => {
     && isHint(input.ownerHint)
     && isCoverage(input.coverage);
   if (!ok) throw ctx.error('INPUT_REJECTED', 'expected {run, failedJobs?: {name, step, firstError}[], errors: string[], history|null, ownerHint|null, coverage with logsTruncated and logsUnavailable} in the triage result\'s shapes');
-  return {output: assembleReport(bounded(withheld(input)))};
+  return {output: assembleReport(withheld(bounded(withheld(input))))};
 };
 
 module.exports.hasAddress = hasAddress;

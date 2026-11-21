@@ -375,7 +375,9 @@ test('an address behind punctuation after a URL is refused; ssh -T, version pins
   for (const firstError of ['+ ssh -T git@github.com', 'npm ERR! notarget No matching version found for lodash@4.17.99.', 'go: github.com/foo/bar@v1.2.3: invalid version',
     "ERROR 1045 (28000): Access denied for user 'app'@'172.17.0.1' (using password: YES)"]) {
     const {output} = await assemble({...f, failedJobs: [{name: 'j', step: 'Run x', firstError}]});
-    assert.ok(output.failed_jobs[0].first_error === firstError || output.failed_jobs[0].first_error === '(withheld: it holds an e-mail address)', firstError);
+    // (ssh -T git@host has no colon: an address by the broad rule, as the
+    // pins and the MySQL host are)
+    assert.strictEqual(output.failed_jobs[0].first_error, '(withheld: it holds an e-mail address)', firstError);
     assert.strictEqual(output.failed_jobs[0].step, 'Run x');
   }
 });
@@ -421,4 +423,24 @@ test('an address withholds its field, never the report; the check is broad, its 
   assert.strictEqual(output.failed_jobs[0].first_error, '(withheld: it holds an e-mail address)');
   assert.strictEqual(output.failed_jobs[0].step, 'Run npm i');
   assert.strictEqual(output.coverage.logsUnavailable[0].job, '(withheld: it holds an e-mail address)');
+});
+
+// (the fifth medium on the P3 fix) withheld wherever the triage result
+// carries the text: the run's own job, step, workflow and branch and the
+// error lines too; checked before and after the cut; a tag starts its run;
+// an encoded or full-width @ and . are read as the plain ones
+test('an address is withheld in the run and the error lines too, before and after the cut; encoded and full-width forms are seen', async () => {
+  const f = fixture();
+  const {output} = await assemble({...f, run: {...f.run, job: 'deploy (alice@corp.example)', step: 'notify alice@corp.example', workflow: 'CI alice@corp.example', branch: 'fix-alice@corp.example'},
+    errors: ['Error: denied for alice@corp.example', 'plain line']});
+  for (const v of [output.run.job, output.run.step, output.run.workflow, output.run.branch, output.errors[0]]) assert.strictEqual(v, '(withheld: it holds an e-mail address)');
+  assert.strictEqual(output.errors[1], 'plain line');
+  // a git line cut just before its colon would read as an address
+  const cutNear = {...f, failedJobs: [{name: 'j', step: null, firstError: `${'x'.repeat(482)} git@corp.example: denied`}]};
+  assert.strictEqual((await assemble(cutNear)).output.failed_jobs[0].first_error, '(withheld: it holds an e-mail address)');
+  const {hasAddress} = assemble;
+  for (const s of ['notify bob.smith<b>@corp.example', 'ssh://bob.smith%40corp.example@github.com/x', 'https://x.invalid/?e=bob%40corp.example', 'bob＠corp.example', 'bob@corp。example']) {
+    assert.strictEqual(hasAddress(s), true, s);
+  }
+  for (const s of ['https://<basicAuth>@github.com/o/r.git', 'push x-access-token:<githubToken>@github.com']) assert.strictEqual(hasAddress(s), false, s);
 });

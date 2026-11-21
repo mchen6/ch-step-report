@@ -53,8 +53,9 @@ const USERINFO_CHAR = /[A-Za-z0-9._~%:-]/;
 const USER_CHAR = /[A-Za-z0-9._-]/;
 const SCHEME_START = /[\s"'`(<\[{=,;:>]/;
 const GIT_START = /[\s"'`(\[]/;
-const TAG = /^<[A-Za-z]{1,24}>/;
-const isPart = (c) => c !== '@' && !/\s/.test(c);
+// ch-step-redact's own tags (the reviewer's high on #7, L7): no other
+// <letters> stands for a masked user part
+const REDACT_TAGS = new Set(['jwt', 'basicAuth', 'githubToken', 'awsKey', 'token', 'apiKey', 'privateKey', 'secret']);
 // The text as an address is read (the fifth and sixth mediums on the P3
 // fix): one pass over a fixed map, never NFKC (whose expansions cost 60
 // times as much on hostile input). A dot's lookalikes (． 。 ｡ ․ ﹒, and the
@@ -65,8 +66,10 @@ const ENC_AT = '\uE000';
 const LOOKALIKE = /%25(?:40|2e)|%40|%2e|[\uFF20\uFE6B\uFF0E\u3002\uFF61\u2024\uFE52\u2025\u2026]/gi;
 const AS = {'%2540': ENC_AT, '%40': ENC_AT, '\uFF20': ENC_AT, '\uFE6B': ENC_AT};
 const plain = (text) => String(text).replace(LOOKALIKE, (m) => AS[m.toLowerCase()] || '.');
-// A redaction tag (<Letters>, at most 24) ending right before `at`, that
-// starts its run -> true. By character codes, no slice.
+const isAt = (c) => c === '@' || c === ENC_AT;
+const isPart = (c) => !isAt(c) && !/\s/.test(c);
+// A redaction tag of redact's own ending right before `at`, starting its
+// run -> true. By character codes, no slice.
 const isLetter = (code) => (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
 const TAG_START = /[\s"'`(\[:/=,;]/;
 function tagBefore(text, at) {
@@ -74,11 +77,40 @@ function tagBefore(text, at) {
   let k = at - 2;
   while (k >= 0 && at - 2 - k < 24 && isLetter(text.charCodeAt(k))) k--;
   if (k < 0 || text[k] !== '<' || k === at - 2) return false;
+  if (!REDACT_TAGS.has(text.slice(k + 1, at - 1))) return false;
   return k === 0 || TAG_START.test(text[k - 1]);
 }
+// The host right after the @ at `at` -> whether it is an address's: a run up
+// to the first delimiter, @ or space (after an optional quote), trailing
+// dots trimmed, with a dot inside and a last label of letters, two or more
+// (any script), or an IDN's xn-- (the reviewer's high on #7, L8: a version
+// pin, react@16.8.0, is none). A forward scan, so linear in the host.
+const HOST_END = /[\s/?#:,;"'()<>[\]`=&!*+|\\{}^]/;
+const LAST_LABEL = /^(?:\p{L}{2,}|xn--[A-Za-z0-9-]+)$/iu;
+function addressHost(text, at) {
+  let i = at + 1;
+  if (text[i] === "'" || text[i] === '"') i++;
+  const start = i;
+  while (i < text.length && !isAt(text[i]) && !HOST_END.test(text[i])) i++;
+  let end = i;
+  while (end > start && text[end - 1] === '.') end--;
+  const host = text.slice(start, end);
+  const dot = host.lastIndexOf('.');
+  if (dot <= 0) return false;
+  return LAST_LABEL.test(host.slice(dot + 1));
+}
+// One pass. `authority` holds from just after a known scheme's "://" while
+// only userinfo characters (or a whole redact tag) follow; the @ ending it is
+// a URL's user name, and from there `host` holds to the end of the
+// authority, where a second @ is an address's (the reviewer's high on #7,
+// H1: postgres://svc@corp.com:pw@db). Each look back (the scheme, the user,
+// a tag of at most 24 letters) stops at a character the other does not
+// take, and each host scan at the next @ or delimiter, so the whole is
+// linear in the text.
 function hasAddress(input) {
   const text = plain(input);
   let authority = false;
+  let host = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === ':' && text[i + 1] === '/' && text[i + 2] === '/') {
@@ -86,40 +118,38 @@ function hasAddress(input) {
       while (start > 0 && SCHEME_CHAR.test(text[start - 1])) start--;
       const scheme = text.slice(start, i).toLowerCase();
       authority = /^[a-z]/.test(scheme) && USER_SCHEMES.has(scheme) && (start === 0 || SCHEME_START.test(text[start - 1]));
+      host = false;
       i += 2;
       continue;
     }
-    if (c === ENC_AT) {
-      // (an encoded @ is an address's, wherever it is)
-      authority = false;
-      let end = i + 1;
-      while (end < text.length && isPart(text[end])) end++;
-      const domain = text.slice(i + 1, end);
-      const dot = domain.indexOf('.', 1);
-      if (dot !== -1 && dot < domain.length - 1) return true;
-      continue;
-    }
-    if (c !== '@') {
+    if (!isAt(c)) {
+      if (host && (/\s/.test(c) || c === '/' || c === '?' || c === '#')) host = false;
       if (!authority) continue;
       if (c === '<') {
-        const tag = TAG.exec(text.slice(i, i + 26));
-        if (tag != null) { i += tag[0].length - 1; continue; }
+        let k = i + 1;
+        while (k < text.length && k - i <= 24 && isLetter(text.charCodeAt(k))) k++;
+        if (text[k] === '>' && k > i + 1 && REDACT_TAGS.has(text.slice(i + 1, k))) { i = k; continue; }
       }
       if (!USERINFO_CHAR.test(c)) authority = false;
       continue;
     }
+    // an @ in the host part, after the user name's: an address
+    if (host) return true;
+    if (c === ENC_AT) {
+      // (an encoded @ is an address's, wherever it is)
+      authority = false;
+      if (addressHost(text, i)) return true;
+      continue;
+    }
     const userinfo = authority;
     authority = false;
-    if (i === 0 || !isPart(text[i - 1]) || userinfo) continue;
+    if (userinfo) { host = true; continue; }
+    if (i === 0 || !isPart(text[i - 1])) continue;
     if (tagBefore(text, i)) continue;
-    let end = i + 1;
-    while (end < text.length && isPart(text[end])) end++;
-    const domain = text.slice(i + 1, end);
     let u = i;
     while (u > 0 && USER_CHAR.test(text[u - 1])) u--;
-    if (text.slice(u, i) === 'git' && (u === 0 || GIT_START.test(text[u - 1])) && /^[A-Za-z0-9.-]+(?::|'s(?![A-Za-z]))/.test(domain)) continue;
-    const dot = domain.indexOf('.', 1);
-    if (dot !== -1 && dot < domain.length - 1) return true;
+    if (text.slice(u, i) === 'git' && (u === 0 || GIT_START.test(text[u - 1])) && /^[A-Za-z0-9.-]+(?::|'s(?![A-Za-z]))/.test(text.slice(i + 1, i + 260))) continue;
+    if (addressHost(text, i)) return true;
   }
   return false;
 }

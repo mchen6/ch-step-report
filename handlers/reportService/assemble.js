@@ -15,63 +15,40 @@ const isHistory = (h) => h === null || (isObject(h) && Number.isInteger(h.count)
 // display name ('@' or whitespace) can reach the report.
 const NOT_A_NAME_OR_ADDRESS = /^[^@\s]+$/;
 // Every count a non-negative integer, capHit a boolean, and the unavailable logs
-// at most MAX_UNAVAILABLE, each a run id and a job name with no address in it.
+// at most MAX_UNAVAILABLE, each a run id and a job name (one holding an
+// address is withheld, below).
 const COUNTS = ['runsListed', 'failedRuns', 'logsFetched', 'logsExpired', 'logsTruncated', 'cacheHits'];
 const MAX_UNAVAILABLE = 50;
 // Whether `text` holds an e-mail address: a run of non-space, non-@
 // characters, an @, and a run holding a dot with a character on either side
-// of it. Scanned out from each @, so it is linear in the text's length; the
-// regular expression it replaces (/[^\s@]+@[^\s@]+\.[^\s@]+/) was
-// quadratic (a 40 KB string took about 3 s; the reviewer, 2026-11-13).
-// Whether an @ is an e-mail address's (the reviewer's pre-work high on
-// pack 1, P3, 2026-11-21, and the mediums on its fix). ch-step-redact
-// masks addresses upstream, so one reaching here fails closed; but common
-// git, package and database errors carry an @, and none of these must fail
-// the whole report. An @ is an address only when the host right after it --
-// a run of host characters, after an optional quote -- has a dot and ends
-// in a label of letters (two or more) or an IDN's xn--, and none of these
-// holds:
-// - it ends a URL's userinfo: right after "<scheme>://" (a scheme where a
-//   user name is normal, starting its run) and userinfo characters
-//   (ssh://git@github.com/o/r.git, postgres://app@db.internal/x);
-// - a redact tag is right before it (://<basicAuth>@, <githubToken>@): the
+// of it -- broad on purpose: ch-step-redact masks addresses upstream, so one
+// reaching here is withheld, and a line that only looks like one (a version
+// pin, a MySQL 'user'@'host') costs just its field, never the report (the
+// reviewer's pre-work high on pack 1, P3, 2026-11-21, and the four mediums
+// on its fix). Three exact shapes are not addresses, so common git errors
+// keep their text:
+// - an @ right after a redaction tag (://<basicAuth>@, <githubToken>@): the
 //   user part is already masked;
-// - git's own user, "git" starting its run (git@github.com:o/r.git, ssh -T
-//   git@github.com, git@github.com's password).
-// So a version pin (lodash@4.17.99, bar@v0.0.0-2021..., react@"16.x"),
-// MySQL's 'app'@'172.17.0.1' and a URL's own @ pass, and an address beside
-// a number in the same token (bob@corp.example/1.0) does not.
+// - the @ ending a URL's userinfo: right after "<scheme>://" (a scheme where
+//   a user name is normal, starting its run) and only userinfo characters
+//   or a whole tag (ssh://git@github.com/o/r.git, postgres://app@db.internal);
+// - git's own user before a path or its password prompt: "git" starting its
+//   run, then a host and a colon or 's (git@github.com:o/r.git,
+//   git@github.com's password).
+// Scanned out from each @, each look back bounded by the characters it
+// takes, so it is linear in the text's length; the regular expression it
+// replaced (/[^\s@]+@[^\s@]+\.[^\s@]+/) was quadratic (a 40 KB string took
+// about 3 s; the reviewer, 2026-11-13).
 const USER_SCHEMES = new Set(['ssh', 'git', 'git+ssh', 'ssh+git', 'http', 'https', 'ftp', 'ftps', 'sftp', 'postgres', 'postgresql',
   'mysql', 'mariadb', 'mongodb', 'mongodb+srv', 'redis', 'rediss', 'amqp', 'amqps', 'ldap', 'ldaps', 'smtp', 'smtps', 'imap', 'imaps']);
 const SCHEME_CHAR = /[A-Za-z0-9+.-]/;
-// userinfo's own characters (RFC 3986's unreserved, %, ':' and the
-// sub-delims that don't also end a token in a log line)
-const USERINFO_CHAR = /[A-Za-z0-9._~%:!$&*+=-]/;
+const USERINFO_CHAR = /[A-Za-z0-9._~%:-]/;
 const USER_CHAR = /[A-Za-z0-9._-]/;
-const HOST_CHAR = /[A-Za-z0-9.-]/;
-const RUN_START = /[\s"'`(<\[{=,;:>]/;
+const SCHEME_START = /[\s"'`(<\[{=,;:>]/;
+const GIT_START = /[\s"'`(\[]/;
+const TAG = /^<[A-Za-z]{1,24}>/;
 const TAG_BEFORE = /<[A-Za-z]{1,24}>$/;
 const isPart = (c) => c !== '@' && !/\s/.test(c);
-// The host right after the @ at `at`: -> whether it is an address's.
-// A forward scan of host characters, so linear in the host's length.
-function addressHost(text, at) {
-  let i = at + 1;
-  if (text[i] === "'" || text[i] === '"') i++;
-  const start = i;
-  while (i < text.length && HOST_CHAR.test(text[i])) i++;
-  let end = i;
-  while (end > start && text[end - 1] === '.') end--;
-  const host = text.slice(start, end);
-  const dot = host.lastIndexOf('.');
-  if (dot <= 0) return false;
-  const last = host.slice(dot + 1);
-  return /^[A-Za-z]{2,}$/.test(last) || /^xn--[A-Za-z0-9-]+$/.test(last);
-}
-// One pass: `authority` holds from just after a known scheme's "://" while
-// only userinfo characters (or a redact tag) follow. Each look back (the
-// scheme before ://, the user before @, a tag of at most 26 characters)
-// stops at a character the other does not take, and each host is scanned
-// forward to its first non-host character, so the whole is linear.
 function hasAddress(text) {
   let authority = false;
   for (let i = 0; i < text.length; i++) {
@@ -80,22 +57,31 @@ function hasAddress(text) {
       let start = i;
       while (start > 0 && SCHEME_CHAR.test(text[start - 1])) start--;
       const scheme = text.slice(start, i).toLowerCase();
-      authority = /^[a-z]/.test(scheme) && USER_SCHEMES.has(scheme) && (start === 0 || RUN_START.test(text[start - 1]));
+      authority = /^[a-z]/.test(scheme) && USER_SCHEMES.has(scheme) && (start === 0 || SCHEME_START.test(text[start - 1]));
       i += 2;
       continue;
     }
     if (c !== '@') {
-      if (authority && !USERINFO_CHAR.test(c) && c !== '<' && c !== '>') authority = false;
+      if (!authority) continue;
+      if (c === '<') {
+        const tag = TAG.exec(text.slice(i, i + 26));
+        if (tag != null) { i += tag[0].length - 1; continue; }
+      }
+      if (!USERINFO_CHAR.test(c)) authority = false;
       continue;
     }
     const userinfo = authority;
     authority = false;
     if (i === 0 || !isPart(text[i - 1]) || userinfo) continue;
     if (TAG_BEFORE.test(text.slice(Math.max(0, i - 26), i))) continue;
+    let end = i + 1;
+    while (end < text.length && isPart(text[end])) end++;
+    const domain = text.slice(i + 1, end);
     let u = i;
     while (u > 0 && USER_CHAR.test(text[u - 1])) u--;
-    if (text.slice(u, i) === 'git' && (u === 0 || RUN_START.test(text[u - 1]))) continue;
-    if (addressHost(text, i)) return true;
+    if (text.slice(u, i) === 'git' && (u === 0 || GIT_START.test(text[u - 1])) && /^[A-Za-z0-9.-]+(?::|'s(?![A-Za-z]))/.test(domain)) continue;
+    const dot = domain.indexOf('.', 1);
+    if (dot !== -1 && dot < domain.length - 1) return true;
   }
   return false;
 }
@@ -103,15 +89,30 @@ const ADDRESS = {test: hasAddress};
 const isCoverage = (c) => isObject(c) && COUNTS.every((k) => Number.isInteger(c[k]) && c[k] >= 0) && typeof c.capHit === 'boolean'
   && (c.historyRebuilt === undefined || typeof c.historyRebuilt === 'boolean')
   && Array.isArray(c.logsUnavailable) && c.logsUnavailable.length <= MAX_UNAVAILABLE
-  && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && typeof u.job === 'string' && !ADDRESS.test(u.job));
+  && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && typeof u.job === 'string');
 // Every failed job of the run (0.4.0, optional): a name, the failing step and
-// the first error line, each text (or null for the last two) with no address
-// in it; at most a run's jobs (GitHub runs at most 256 per matrix, and a run
+// the first error line, each text (or null for the last two; one holding an
+// address is withheld); at most a run's jobs (GitHub runs at most 256 per matrix, and a run
 // may have several), of which the report lists the first 50.
 const MAX_FAILED_JOBS = 1000;
-const noAddress = (t) => typeof t === 'string' && !ADDRESS.test(t);
-const isFailedJob = (j) => isObject(j) && Object.keys(j).length === 3 && noAddress(j.name)
-  && (j.step === null || noAddress(j.step)) && (j.firstError === null || noAddress(j.firstError));
+const isFailedJob = (j) => isObject(j) && Object.keys(j).length === 3 && typeof j.name === 'string'
+  && (j.step === null || typeof j.step === 'string') && (j.firstError === null || typeof j.firstError === 'string');
+
+// A failed job's name, step or first error, or an unavailable log's job
+// name, that holds an e-mail address is withheld: the note stands in its
+// place and the rest of the report is kept (the reviewer's pre-work high
+// on pack 1, P3). Read on the strings as given, before the cut: a cut can
+// only hide an address, never make one.
+const WITHHELD = '(withheld: it holds an e-mail address)';
+const unaddressed = (t) => (typeof t === 'string' && ADDRESS.test(t) ? WITHHELD : t);
+function withheld(input) {
+  const out = {...input};
+  if (Array.isArray(input.failedJobs)) out.failedJobs = input.failedJobs.map((j) => ({name: unaddressed(j.name), step: unaddressed(j.step), firstError: unaddressed(j.firstError)}));
+  if (isObject(input.coverage) && Array.isArray(input.coverage.logsUnavailable)) {
+    out.coverage = {...input.coverage, logsUnavailable: input.coverage.logsUnavailable.map((u) => ({...u, job: unaddressed(u.job)}))};
+  }
+  return out;
+}
 const isFailedJobs = (l) => l === undefined || (Array.isArray(l) && l.length <= MAX_FAILED_JOBS && l.every(isFailedJob));
 const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && Array.isArray(o.why)
   && o.logins.length <= 3 && o.logins.length === o.why.length
@@ -176,8 +177,9 @@ module.exports = async (input, ctx) => {
     && isHint(input.ownerHint)
     && isCoverage(input.coverage);
   if (!ok) throw ctx.error('INPUT_REJECTED', 'expected {run, failedJobs?: {name, step, firstError}[], errors: string[], history|null, ownerHint|null, coverage with logsTruncated and logsUnavailable} in the triage result\'s shapes');
-  return {output: assembleReport(bounded(input))};
+  return {output: assembleReport(bounded(withheld(input)))};
 };
 
 module.exports.hasAddress = hasAddress;
+module.exports.WITHHELD = WITHHELD;
 module.exports.bounded = bounded;

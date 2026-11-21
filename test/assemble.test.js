@@ -78,10 +78,9 @@ test('handler validates its input', async () => {
     {...f, ownerHint: {logins: ['a', 'b', 'c', 'd'], why: ['1', '2', '3', '4']}},
     {...f, coverage: {...f.coverage, logsTruncated: -1}}, {...f, coverage: {...f.coverage, logsTruncated: '2'}},
     {...f, coverage: {...f.coverage, logsUnavailable: 1}}, {...f, coverage: {...f.coverage, logsUnavailable: [{runId: '1'}]}}, {...f, coverage: {...f.coverage, logsUnavailable: [{runId: 1, job: 'j'}]}},
-    // From /code-review medium on #1: every coverage field is checked, job names carry no address, the list is bounded.
+    // From /code-review medium on #1: every coverage field is checked, the list is bounded (a job name holding an address is withheld, below).
     {...f, coverage: {...f.coverage, logsFetched: 'x'}}, {...f, coverage: {...f.coverage, cacheHits: -1}}, {...f, coverage: {...f.coverage, capHit: 'no'}},
     {...f, coverage: {...f.coverage, runsListed: undefined}},
-    {...f, coverage: {...f.coverage, logsUnavailable: [{runId: '1', job: 'deploy (alice@example.com)'}]}},
     {...f, coverage: {...f.coverage, logsUnavailable: Array.from({length: 51}, (_, i) => ({runId: String(i), job: 'j'}))}}]) {
     await assert.rejects(assemble(bad), invalid, JSON.stringify(bad).slice(0, 80));
   }
@@ -181,15 +180,12 @@ test('an input from before 0.4.0 (no failedJobs) assembles with failed_jobs null
   assert.strictEqual(out.summary.startsWith("The triaged job's failing step "), true);
 });
 
-test('the handler checks failedJobs: a name, step and first error with no address, the last two text or null, at most 1000', async () => {
+test('the handler checks failedJobs: a name, step and first error, the last two text or null, at most 1000', async () => {
   const invalid = (err) => err.code === 'INPUT_REJECTED';
   const f = fixture();
   for (const bad of [{...f, failedJobs: 'x'}, {...f, failedJobs: [{name: 7, step: null, firstError: null}]},
     {...f, failedJobs: [{name: 'j', step: 1, firstError: null}]}, {...f, failedJobs: [{name: 'j', step: null, firstError: 2}]},
     {...f, failedJobs: [{name: 'j', step: null}]}, {...f, failedJobs: [{name: 'j', step: null, firstError: null, extra: 1}]},
-    {...f, failedJobs: [{name: 'deploy (alice@example.com)', step: null, firstError: null}]},
-    {...f, failedJobs: [{name: 'j', step: 'notify alice@example.com', firstError: null}]},
-    {...f, failedJobs: [{name: 'j', step: null, firstError: 'Error: denied for alice@example.com'}]},
     {...f, failedJobs: Array.from({length: 1001}, (_, i) => ({name: `j${i}`, step: null, firstError: null}))}]) {
     await assert.rejects(assemble(bad), invalid, JSON.stringify(bad).slice(0, 80));
   }
@@ -230,13 +226,15 @@ test('every free-text string is bounded before anything else runs: names and ste
   assert.ok(output.summary.length < 400, output.summary);
 });
 
-test('an address the cut would split is still refused: the check reads the strings as given', async () => {
+test('an address the cut would split is still withheld: the check reads the strings as given', async () => {
   const f = fixture();
   for (const at of [480, 485, 490]) {
     const firstError = `${'x'.repeat(at)} bob@corp.example`;
-    await assert.rejects(assemble({...f, failedJobs: [{name: 'j', step: null, firstError}]}), (e) => e.code === 'INPUT_REJECTED', String(at));
+    const {output} = await assemble({...f, failedJobs: [{name: 'j', step: null, firstError}]});
+    assert.strictEqual(output.failed_jobs[0].first_error, '(withheld: it holds an e-mail address)', String(at));
   }
-  await assert.rejects(assemble({...f, failedJobs: [{name: `${'n'.repeat(190)} al@corp.example`, step: null, firstError: null}]}), (e) => e.code === 'INPUT_REJECTED');
+  const {output} = await assemble({...f, failedJobs: [{name: `${'n'.repeat(190)} al@corp.example`, step: null, firstError: null}]});
+  assert.strictEqual(output.failed_jobs[0].job, '(withheld: it holds an e-mail address)');
 });
 
 test('workflow, branch and the owner-hint reasons are bounded too; a cut never splits a surrogate pair', async () => {
@@ -324,7 +322,7 @@ test('a URL\'s user name is not an e-mail address: a git error over ssh assemble
     const {output} = await assemble({...f, failedJobs: [{name: 'j', step: 'Run git fetch', firstError}]});
     assert.strictEqual(output.failed_jobs[0].first_error, firstError);
   }
-  await assert.rejects(assemble({...f, failedJobs: [{name: 'j', step: null, firstError: 'Error: mailto:bob@corp.example'}]}), (e) => e.code === 'INPUT_REJECTED');
+  assert.strictEqual((await assemble({...f, failedJobs: [{name: 'j', step: null, firstError: 'Error: mailto:bob@corp.example'}]})).output.failed_jobs[0].first_error, '(withheld: it holds an e-mail address)');
 });
 
 // (P2) the step's name comes from the workflow file, which a pull request
@@ -367,15 +365,18 @@ test('the URL exemption is the userinfo\'s @ only, under a known scheme; git@hos
 // (the medium on the second round) the userinfo runs only over its own
 // characters; "git" starts its run; git@host as ssh -T names it; a version
 // pin and MySQL's 'user'@'host' are no addresses; anything else is
-test('the URL userinfo, git@host and the common error shapes; an address behind punctuation is still refused', () => {
+test('an address behind punctuation after a URL is refused; ssh -T, version pins and MySQL lines cost only their field', async () => {
   const {hasAddress} = assemble;
-  for (const s of ['+ ssh -T git@github.com', 'npm ERR! notarget No matching version found for lodash@4.17.99.', 'go: github.com/foo/bar@v1.2.3: invalid version',
-    "ERROR 1045 (28000): Access denied for user 'app'@'172.17.0.1' (using password: YES)", "Access denied for user 'app'@'localhost'"]) {
-    assert.strictEqual(hasAddress(s), false, s);
-  }
   for (const s of ['{"u":"https://","by":"bob@corp.example"}', 'https://h.invalid,bob@corp.example', 'mirrors: https://a.invalid;bob@corp.example',
     'https://"bob@corp.example"', 'alice+git@corp.example: hello', 'x/git@corp.example:y', "user 'app'@'db.example'"]) {
     assert.strictEqual(hasAddress(s), true, s);
+  }
+  const f = fixture();
+  for (const firstError of ['+ ssh -T git@github.com', 'npm ERR! notarget No matching version found for lodash@4.17.99.', 'go: github.com/foo/bar@v1.2.3: invalid version',
+    "ERROR 1045 (28000): Access denied for user 'app'@'172.17.0.1' (using password: YES)"]) {
+    const {output} = await assemble({...f, failedJobs: [{name: 'j', step: 'Run x', firstError}]});
+    assert.ok(output.failed_jobs[0].first_error === firstError || output.failed_jobs[0].first_error === '(withheld: it holds an e-mail address)', firstError);
+    assert.strictEqual(output.failed_jobs[0].step, 'Run x');
   }
 });
 
@@ -388,15 +389,36 @@ test('the summary ties the step it names to the triaged job', () => {
 // address in the same token hides nothing; version pins of every shape,
 // redact's own tags before an @, git's password prompt and a URL in
 // backticks pass; a quoted host follows the same rule
-test('the host after an @ decides, read on its own: pins, redact tags, git prompts, backticks; an address beside a number is refused', () => {
+test('redact tags, git prompts and backticked URLs are no addresses; an address beside a number is', () => {
   const {hasAddress} = assemble;
-  for (const s of ['go: github.com/x/y@v0.0.0-20210101000000-abcdef012345: invalid version', 'go: github.com/x/y@v2.0.0+incompatible: bad',
-    'npm ERR! notarget No matching version found for foo@1.0.0-beta.', 'npm ERR! peer react@"16.x || 17.x" from foo', 'foo@^1.x',
-    'Unable to update `ssh://git@github.com/o/r.git`', '`git@github.com:o/r.git`', 'url:ssh://git@github.com/o/r', "git@github.com's password:",
+  for (const s of ['Unable to update `ssh://git@github.com/o/r.git`', '`git@github.com:o/r.git`', 'url:ssh://git@github.com/o/r', "git@github.com's password:",
     'fatal: unable to access https://<basicAuth>@github.com/o/r.git', 'push x-access-token:<githubToken>@github.com refused']) {
     assert.strictEqual(hasAddress(s), false, s);
   }
   for (const s of ['["bob@corp.example",1.5]', 'bob@corp.example/1.0', 'bob@corp.example,v1.2', 'mail bob@corp.example;ref=2.3', "'bob'@'corp.xn--p1ai'"]) {
     assert.strictEqual(hasAddress(s), true, s);
   }
+});
+
+// (the fourth medium on the P3 fix) the check is the old broad one again,
+// with three exact exemptions; and an address costs its field, never the
+// report: the field is withheld, with a note in its place
+test('an address withholds its field, never the report; the check is broad, its exemptions exact', async () => {
+  const {hasAddress} = assemble;
+  for (const s of ['bob@bücher.de', 'bob@corp.рф', 'bob@mail_x.corp.example', 'bob@corp.XN--P1AI', '<a href=https://h.invalid>bob@corp.example</a>',
+    'https://h.invalid<bob@corp.example>', 'mailto:git@corp.example', 'user:git@corp.example', 'From: git@gmail.com', 'see https://h.invalid&to=bob@corp.example',
+    'alice+git@corp.example: hello', '["bob@corp.example",1.5]', "'bob'@'corp.xn--p1ai'"]) {
+    assert.strictEqual(hasAddress(s), true, s);
+  }
+  for (const s of ['ssh://git@github.com/o/r.git', 'postgres://app@db.internal/x', 'git@github.com:o/r.git', 'git@github.com: Permission denied (publickey).',
+    "git@github.com's password:", '`git@github.com:o/r.git`', 'Unable to update `ssh://git@github.com/o/r.git`', 'fatal: unable to access https://<basicAuth>@github.com/o/r.git',
+    'push x-access-token:<githubToken>@github.com refused']) {
+    assert.strictEqual(hasAddress(s), false, s);
+  }
+  const f = fixture();
+  const {output} = await assemble({...f, failedJobs: [{name: 'j', step: 'Run npm i', firstError: 'npm ERR! notarget No matching version found for foo@1.0.0-alpha.beta'}],
+    coverage: {...f.coverage, logsUnavailable: [{runId: '1', job: 'notify bob@corp.example'}]}});
+  assert.strictEqual(output.failed_jobs[0].first_error, '(withheld: it holds an e-mail address)');
+  assert.strictEqual(output.failed_jobs[0].step, 'Run npm i');
+  assert.strictEqual(output.coverage.logsUnavailable[0].job, '(withheld: it holds an e-mail address)');
 });

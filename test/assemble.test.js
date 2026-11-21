@@ -356,7 +356,10 @@ test('the URL exemption is the userinfo\'s @ only, under a known scheme; git@hos
   // linear: four times the input, about four times the time (a quadratic
   // scan would take sixteen), whatever the machine's load
   const shapes = (n) => ['://' + 'a@b'.repeat(n), 'a://'.repeat(n) + '@', 'https://' + 'a'.repeat(3 * n) + '@', 'git@'.repeat(n), 'ssh://'.repeat(n) + 'git@x.y', 'https://a,'.repeat(n) + 'b@c.example', 'a@a' + '.'.repeat(4 * n) + 'x', 'a@a' + '.;'.repeat(2 * n) + 'x', '<a>@'.repeat(n)];
-  const time = (n) => { const t0 = process.hrtime.bigint(); for (let k = 0; k < 3; k++) for (const s of shapes(n)) hasAddress(s); return Number(process.hrtime.bigint() - t0); };
+  // (the least of five timings per size: a load spike only adds, so the
+  // minimum is the honest one)
+  const once = (n) => { const t0 = process.hrtime.bigint(); for (const s of shapes(n)) hasAddress(s); return Number(process.hrtime.bigint() - t0); };
+  const time = (n) => Math.min(...Array.from({length: 5}, () => once(n)));
   time(2000);
   const ratio = time(16000) / Math.max(1, time(4000));
   assert.ok(ratio < 9, `4x the input took ${ratio.toFixed(1)}x the time`);

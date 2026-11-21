@@ -6,10 +6,17 @@ const {assembleReport} = require('../../lib/report');
 const INPUT = ['run', 'failedJobs', 'errors', 'history', 'ownerHint', 'coverage'];
 const VERDICTS = ['new', 'flaky', 'recurring'];
 const isObject = (x) => x != null && typeof x === 'object' && !Array.isArray(x);
-const isSeen = (s) => isObject(s) && typeof s.commit === 'string';
+// Machine values are held to their shapes (the sixth medium on the P3 fix:
+// an id, a commit or a time is never text, so one that isn't its shape is
+// the chain's bug, refused): a run id digits, a commit hex, a time ISO 8601.
+const DIGITS = /^\d+$/;
+const HEX = /^[0-9a-f]+$/;
+const TIME = /^\d{4}-\d\d-\d\dT[0-9:.]+(?:Z|[+-]\d\d:\d\d)$/;
+const isSeen = (s) => isObject(s) && typeof s.commit === 'string' && HEX.test(s.commit) && typeof s.runId === 'string' && DIGITS.test(s.runId)
+  && typeof s.createdAt === 'string' && TIME.test(s.createdAt);
 const isHistory = (h) => h === null || (isObject(h) && Number.isInteger(h.count) && h.count >= 1 && Number.isInteger(h.window) && h.window >= 1
   && VERDICTS.includes(h.verdict) && isSeen(h.firstSeen) && isSeen(h.lastSeen)
-  && Array.isArray(h.runIds) && h.runIds.length === h.count && (h.verdict !== 'new' || h.count === 1));
+  && Array.isArray(h.runIds) && h.runIds.length === h.count && h.runIds.every((r) => typeof r === 'string' && DIGITS.test(r)) && (h.verdict !== 'new' || h.count === 1));
 // A login's exact shape is ch-step-owner-hint's to check; this step keeps
 // only the guarantee that matters at its boundary: no e-mail address and no
 // display name ('@' or whitespace) can reach the report.
@@ -47,15 +54,28 @@ const USER_CHAR = /[A-Za-z0-9._-]/;
 const SCHEME_START = /[\s"'`(<\[{=,;:>]/;
 const GIT_START = /[\s"'`(\[]/;
 const TAG = /^<[A-Za-z]{1,24}>/;
-// (a tag right before the @ that starts its run: the whole user part,
-// redact's x-access-token:<githubToken>@ or ://<basicAuth>@ -- never
-// bob.smith<b>@)
-const TAG_BEFORE = /(?:^|[\s"'`(\[:/=,;])<[A-Za-z]{1,24}>$/;
 const isPart = (c) => c !== '@' && !/\s/.test(c);
-// The text as an address is read: NFKC (a full-width ＠ is @), the other
-// full stops a domain is written with, and a percent-encoded @ (%40), so no
-// spelling of an @ or a dot gets past (the fifth medium on the P3 fix).
-const plain = (text) => String(text).normalize('NFKC').replace(/[\u3002\uFF0E\uFF61]/g, '.').replace(/[\uFE6B\uFF20]/g, '@').replace(/%40/gi, '@');
+// The text as an address is read (the fifth and sixth mediums on the P3
+// fix): one pass over a fixed map, never NFKC (whose expansions cost 60
+// times as much on hostile input). A dot's lookalikes (． 。 ｡ ․ ﹒, and the
+// cut's own … and ‥ as one dot) and %2E read as a dot; an @ written any
+// other way (＠ ﹫ %40, or %2540 encoded twice) reads as ENC_AT, which is
+// always an address's @: never a URL's userinfo, a tag's or git's.
+const ENC_AT = '\uE000';
+const LOOKALIKE = /%25(?:40|2e)|%40|%2e|[\uFF20\uFE6B\uFF0E\u3002\uFF61\u2024\uFE52\u2025\u2026]/gi;
+const AS = {'%2540': ENC_AT, '%40': ENC_AT, '\uFF20': ENC_AT, '\uFE6B': ENC_AT};
+const plain = (text) => String(text).replace(LOOKALIKE, (m) => AS[m.toLowerCase()] || '.');
+// A redaction tag (<Letters>, at most 24) ending right before `at`, that
+// starts its run -> true. By character codes, no slice.
+const isLetter = (code) => (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+const TAG_START = /[\s"'`(\[:/=,;]/;
+function tagBefore(text, at) {
+  if (text[at - 1] !== '>') return false;
+  let k = at - 2;
+  while (k >= 0 && at - 2 - k < 24 && isLetter(text.charCodeAt(k))) k--;
+  if (k < 0 || text[k] !== '<' || k === at - 2) return false;
+  return k === 0 || TAG_START.test(text[k - 1]);
+}
 function hasAddress(input) {
   const text = plain(input);
   let authority = false;
@@ -67,6 +87,16 @@ function hasAddress(input) {
       const scheme = text.slice(start, i).toLowerCase();
       authority = /^[a-z]/.test(scheme) && USER_SCHEMES.has(scheme) && (start === 0 || SCHEME_START.test(text[start - 1]));
       i += 2;
+      continue;
+    }
+    if (c === ENC_AT) {
+      // (an encoded @ is an address's, wherever it is)
+      authority = false;
+      let end = i + 1;
+      while (end < text.length && isPart(text[end])) end++;
+      const domain = text.slice(i + 1, end);
+      const dot = domain.indexOf('.', 1);
+      if (dot !== -1 && dot < domain.length - 1) return true;
       continue;
     }
     if (c !== '@') {
@@ -81,7 +111,7 @@ function hasAddress(input) {
     const userinfo = authority;
     authority = false;
     if (i === 0 || !isPart(text[i - 1]) || userinfo) continue;
-    if (TAG_BEFORE.test(text.slice(Math.max(0, i - 27), i)) || (i <= 26 && /^<[A-Za-z]{1,24}>$/.test(text.slice(0, i)))) continue;
+    if (tagBefore(text, i)) continue;
     let end = i + 1;
     while (end < text.length && isPart(text[end])) end++;
     const domain = text.slice(i + 1, end);
@@ -97,7 +127,7 @@ const ADDRESS = {test: hasAddress};
 const isCoverage = (c) => isObject(c) && COUNTS.every((k) => Number.isInteger(c[k]) && c[k] >= 0) && typeof c.capHit === 'boolean'
   && (c.historyRebuilt === undefined || typeof c.historyRebuilt === 'boolean')
   && Array.isArray(c.logsUnavailable) && c.logsUnavailable.length <= MAX_UNAVAILABLE
-  && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && typeof u.job === 'string');
+  && c.logsUnavailable.every((u) => isObject(u) && typeof u.runId === 'string' && DIGITS.test(u.runId) && typeof u.job === 'string');
 // Every failed job of the run (0.4.0, optional): a name, the failing step and
 // the first error line, each text (or null for the last two; one holding an
 // address is withheld); at most a run's jobs (GitHub runs at most 256 per matrix, and a run
@@ -115,15 +145,19 @@ const isFailedJob = (j) => isObject(j) && Object.keys(j).length === 3 && typeof 
 // drop what made a line no address (git@host: cut before its colon).
 const WITHHELD = '(withheld: it holds an e-mail address)';
 const unaddressed = (t) => (typeof t === 'string' && ADDRESS.test(t) ? WITHHELD : t);
-function withheld(input) {
+// (check: unaddressed for the strings as given; after the cut, only the
+// strings it changed, which end in …)
+const cutOnly = (t) => (typeof t === 'string' && t.endsWith('…') ? unaddressed(t) : t);
+function withheld(input, check = unaddressed) {
   const out = {...input};
   if (isObject(input.run)) {
-    out.run = {...input.run, job: unaddressed(input.run.job), step: unaddressed(input.run.step), workflow: unaddressed(input.run.workflow), branch: unaddressed(input.run.branch)};
+    out.run = {...input.run, job: check(input.run.job), step: check(input.run.step), workflow: check(input.run.workflow), branch: check(input.run.branch), url: check(input.run.url)};
   }
-  if (Array.isArray(input.errors)) out.errors = input.errors.map(unaddressed);
-  if (Array.isArray(input.failedJobs)) out.failedJobs = input.failedJobs.map((j) => ({name: unaddressed(j.name), step: unaddressed(j.step), firstError: unaddressed(j.firstError)}));
+  if (isObject(input.ownerHint) && Array.isArray(input.ownerHint.why)) out.ownerHint = {...input.ownerHint, why: input.ownerHint.why.map(check)};
+  if (Array.isArray(input.errors)) out.errors = input.errors.map(check);
+  if (Array.isArray(input.failedJobs)) out.failedJobs = input.failedJobs.map((j) => ({name: check(j.name), step: check(j.step), firstError: check(j.firstError)}));
   if (isObject(input.coverage) && Array.isArray(input.coverage.logsUnavailable)) {
-    out.coverage = {...input.coverage, logsUnavailable: input.coverage.logsUnavailable.map((u) => ({...u, job: unaddressed(u.job)}))};
+    out.coverage = {...input.coverage, logsUnavailable: input.coverage.logsUnavailable.map((u) => ({...u, job: check(u.job)}))};
   }
   return out;
 }
@@ -185,13 +219,14 @@ function bounded(input) {
 module.exports = async (input, ctx) => {
   const ok = isObject(input) && Object.keys(input).every((k) => INPUT.includes(k))
     && isObject(input.run) && typeof input.run.job === 'string' && (input.run.step === null || typeof input.run.step === 'string')
+    && typeof input.run.id === 'string' && DIGITS.test(input.run.id) && typeof input.run.commit === 'string' && HEX.test(input.run.commit)
     && isFailedJobs(input.failedJobs)
     && Array.isArray(input.errors) && input.errors.every((e) => typeof e === 'string')
     && isHistory(input.history)
     && isHint(input.ownerHint)
     && isCoverage(input.coverage);
   if (!ok) throw ctx.error('INPUT_REJECTED', 'expected {run, failedJobs?: {name, step, firstError}[], errors: string[], history|null, ownerHint|null, coverage with logsTruncated and logsUnavailable} in the triage result\'s shapes');
-  return {output: assembleReport(withheld(bounded(withheld(input))))};
+  return {output: assembleReport(withheld(bounded(withheld(input)), cutOnly))};
 };
 
 module.exports.hasAddress = hasAddress;

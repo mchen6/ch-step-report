@@ -269,7 +269,8 @@ test('every output string is bounded, and the output validates against the schem
   const validOut = new Ajv2020({allowUnionTypes: true}).compile(require('../schema.json').reportService.assemble.output);
   const L = (n, c) => c.repeat(n);
   const f = fixture();
-  const seen = {runId: L(100, '1'), commit: L(100, 'c'), createdAt: L(100, 't')};
+  // (a long time still in a time's shape: machine values are held to theirs)
+  const seen = {runId: L(100, '1'), commit: L(100, 'c'), createdAt: `2026-11-01T${L(90, '1')}Z`};
   const {output} = await assemble({...f, run: {id: L(100, '9'), url: L(900, 'u'), branch: L(300, 'b'), commit: L(100, 'c'), workflow: L(300, 'w'), job: L(300, 'j'), step: L(300, 's')},
     history: {...f.history, firstSeen: seen, lastSeen: seen, runIds: f.history.runIds.map(() => L(100, '7'))},
     failedJobs: [{name: L(300, 'n'), step: L(300, 's'), firstError: L(900, 'e')}], errors: [L(900, 'x')]});
@@ -446,4 +447,38 @@ test('an address is withheld in the run and the error lines too, before and afte
     assert.strictEqual(hasAddress(s), true, s);
   }
   for (const s of ['https://<basicAuth>@github.com/o/r.git', 'push x-access-token:<githubToken>@github.com']) assert.strictEqual(hasAddress(s), false, s);
+});
+
+// (the sixth medium on the P3 fix) every string the report emits: free
+// text withheld, machine values (ids, commits, times) held to their shapes;
+// the cut's own … reads as one dot; an encoded @ always counts, inside a
+// URL's userinfo too; %2E and %25-double encodings are read; a fixed map,
+// never NFKC (a 60x cost a pull request could trigger)
+test('every emitted string is checked; machine values by shape; …, %40 in userinfo, %2E and %2540 are read right', async () => {
+  const f = fixture();
+  const W = '(withheld: it holds an e-mail address)';
+  const {output} = await assemble({...f, ownerHint: {logins: ['octocat'], why: ['octocat: author, committed as alice@corp.example']}, run: {...f.run, url: 'mailto:alice@corp.example'}});
+  assert.strictEqual(output.owner_hint.why[0], W);
+  assert.strictEqual(output.run.url, W);
+  for (const bad of [{...f, run: {...f.run, id: 'alice@corp.example'}}, {...f, run: {...f.run, commit: 'a@b.cdex'}},
+    {...f, history: {...f.history, firstSeen: {...f.history.firstSeen, commit: 'a@b.cdex'}}}, {...f, history: {...f.history, runIds: ['101', '105', '109', 'x@y.zz']}},
+    {...f, history: {...f.history, lastSeen: {...f.history.lastSeen, createdAt: 'alice@corp.example'}}},
+    {...f, coverage: {...f.coverage, logsUnavailable: [{runId: 'alice@corp.example', job: 'j'}]}}]) {
+    await assert.rejects(assemble(bad), (e) => e.code === 'INPUT_REJECTED', JSON.stringify(bad).slice(0, 100));
+  }
+  // the cut's own … is no address
+  const name = `test (${'n'.repeat(180)}, node@24-lts, ubuntu)`;
+  const cut = await assemble({...f, failedJobs: [{name, step: null, firstError: null}]});
+  assert.notStrictEqual(cut.output.failed_jobs[0].job, W, cut.output.failed_jobs[0].job);
+  const {hasAddress} = assemble;
+  assert.strictEqual(hasAddress('npm ERR! peer react@1…'), false);
+  for (const s of ['https://alice%40corp.example:x@host', 'ssh://alice%40corp.example@host:22/x', 'https://alice%40corp.example', 'alice@corp%2Eexample', 'alice@corp%2eexample', 'alice%2540corp.example', 'bob﹫corp.example', 'bob@corp．example']) {
+    assert.strictEqual(hasAddress(s), true, s);
+  }
+  // a fixed map: full-width-heavy input costs about what plain input does
+  const t = (s) => { const t0 = process.hrtime.bigint(); for (let k = 0; k < 5; k++) hasAddress(s); return Number(process.hrtime.bigint() - t0); };
+  t('x'.repeat(20000));
+  const heavy = Math.min(t('ﷺ'.repeat(20000)), t('ﷺ'.repeat(20000)), t('ﷺ'.repeat(20000)));
+  const light = Math.min(t('a'.repeat(20000)), t('a'.repeat(20000)), t('a'.repeat(20000)));
+  assert.ok(heavy < light * 6, `${(heavy / light).toFixed(1)}x`);
 });

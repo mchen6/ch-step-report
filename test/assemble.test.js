@@ -457,7 +457,7 @@ test('an address is withheld in the run and the error lines too, before and afte
   const cutNear = {...f, failedJobs: [{name: 'j', step: null, firstError: `${'x'.repeat(482)} git@corp.example: denied`}]};
   assert.strictEqual((await assemble(cutNear)).output.failed_jobs[0].first_error, '(withheld: it holds an e-mail address)');
   const {hasAddress} = assemble;
-  for (const s of ['notify bob.smith<b>@corp.example', 'ssh://bob.smith%40corp.example@github.com/x', 'https://x.invalid/?e=bob%40corp.example', 'bob＠corp.example', 'bob@corp。example']) {
+  for (const s of ['notify bob.smith<b>@corp.example', 'ssh://bob.smith%40corp.example@github.com/x', 'https://x.invalid/?e=bob%40corp.example', 'bob\uff20corp.example', 'bob@corp\u3002example']) {
     assert.strictEqual(hasAddress(s), true, s);
   }
   for (const s of ['https://<basicAuth>@github.com/o/r.git', 'push x-access-token:<githubToken>@github.com']) assert.strictEqual(hasAddress(s), false, s);
@@ -486,7 +486,7 @@ test('every emitted string is checked; machine values by shape; …, %40 in user
   assert.notStrictEqual(cut.output.failed_jobs[0].job, W, cut.output.failed_jobs[0].job);
   const {hasAddress} = assemble;
   assert.strictEqual(hasAddress('npm ERR! peer react@1…'), false);
-  for (const s of ['https://alice%40corp.example:x@host', 'ssh://alice%40corp.example@host:22/x', 'https://alice%40corp.example', 'alice@corp%2Eexample', 'alice@corp%2eexample', 'alice%2540corp.example', 'bob﹫corp.example', 'bob@corp．example']) {
+  for (const s of ['https://alice%40corp.example:x@host', 'ssh://alice%40corp.example@host:22/x', 'https://alice%40corp.example', 'alice@corp%2Eexample', 'alice@corp%2eexample', 'alice%2540corp.example', 'bob\ufe6bcorp.example', 'bob@corp\uff0eexample']) {
     assert.strictEqual(hasAddress(s), true, s);
   }
   // a fixed map: full-width-heavy input costs about what plain input does
@@ -533,7 +533,7 @@ test('a second @ in one authority is an address; encoded @ runs stay linear; onl
 test('the last label ends at a non-label character; marks count; all of redact\'s tags; the cut keeps the sentence', () => {
   const {hasAddress} = assemble;
   for (const s of ['\x1b[31mbob@corp.com\x1b[0m', 'error for bob@corp.com\x1b[0m', '‘bob@corp.com’', '“bob@corp.com”', '«bob@corp.com»',
-    'bob@corp.com—x', 'bob@corp.com、', 'bob@corp.com$', 'bob@corp.com_id', 'bob@corp.com\u0000', '?to=bob%40corp.com%26cc=x', '?email=bob%40corp.com%3E',
+    'bob@corp.com\u2014x', 'bob@corp.com\u3001', 'bob@corp.com$', 'bob@corp.com_id', 'bob@corp.com\u0000', '?to=bob%40corp.com%26cc=x', '?email=bob%40corp.com%3E',
     'user=bob@corp.com%0A', 'bob@corp.भारत', 'bob@corp.ćom']) {
     assert.strictEqual(hasAddress(s), true, JSON.stringify(s));
   }

@@ -623,7 +623,10 @@ test('failed before any job ran needs no job named; its gaps are the history\'s'
   assert.match(named.summary, /its log was not read/);
   const none = assembleReport({...f, run: {...f.run, job: '(no failed job)', step: null}, failedJobs: [], errors: [], history: null, ownerHint: null});
   assert.match(none.summary, /^The run failed before any job ran \(an invalid workflow file or a startup failure\), so there is no log to read; in the history: 1 log expired\./);
-  // (the target's log is always read: a cap never stops it, so the sentence
-  // names no cap; the gap says when a cap stopped others)
-  assert.ok(!/over the log cap/.test(summaryOf(f.run, null, {...f.coverage, capHit: true})));
+  // (the target's log is always read: a limit never stops it, so the
+  // sentence about it names no limit; only the gap, at the end, says when a
+  // limit stopped others)
+  const capped = summaryOf(f.run, null, {...f.coverage, capHit: true});
+  const gap = capped.indexOf('; a limit was reached');
+  assert.ok(gap > 0 && !/limit/.test(capped.slice(0, gap)), capped);
 });

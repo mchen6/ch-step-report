@@ -237,7 +237,9 @@ function withheld(input, check = unaddressed) {
 }
 const isFailedJobs = (l) => l === undefined || (Array.isArray(l) && l.length <= MAX_FAILED_JOBS && l.every(isFailedJob));
 const isHint = (o) => o === null || (isObject(o) && Array.isArray(o.logins) && Array.isArray(o.why)
-  && o.logins.length <= 3 && o.logins.length === o.why.length
+  // (one reason per login; or no login and one reason: a scenario's stated
+  // absence, as when the runtime refused reading a commit's author)
+  && o.logins.length <= 3 && (o.logins.length === o.why.length || (o.logins.length === 0 && o.why.length === 1))
   && o.logins.every((l) => typeof l === 'string' && (l.length <= LOGIN_MAX || (l.length <= LOGIN_MAX + BOT.length && l.endsWith(BOT))) && NOT_A_NAME_OR_ADDRESS.test(l)) && o.why.every((w) => typeof w === 'string'));
 
 // Every free-text string the report carries, bounded (the reviewer,

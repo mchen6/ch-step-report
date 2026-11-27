@@ -66,6 +66,16 @@ test("the report passes owner-hint's logins through: their shape is owner-hint's
   assert.deepStrictEqual(output.owner_hint, hint);
 });
 
+// (the triage pack's stated absence when the runtime refused reading a
+// commit's author: no logins, one reason; any other count mismatch is refused)
+test('an owner hint of no logins and one reason passes; no logins and two reasons does not', async () => {
+  const absence = {logins: [], why: ["No owner hint: reading a commit's author was refused by the runtime (VALIDATION_TIMEOUT), so the hint would be incomplete."]};
+  const {output} = await assemble({...fixture(), ownerHint: absence});
+  assert.deepStrictEqual(output.owner_hint, absence);
+  await assert.rejects(assemble({...fixture(), ownerHint: {logins: [], why: ['a', 'b']}}), (e) => e.code === 'INPUT_REJECTED');
+  await assert.rejects(assemble({...fixture(), ownerHint: {logins: ['octocat'], why: []}}), (e) => e.code === 'INPUT_REJECTED');
+});
+
 test('an absent owner hint is null', () => {
   assert.strictEqual(assembleReport({...fixture(), ownerHint: null}).owner_hint, null);
 });

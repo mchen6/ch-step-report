@@ -314,7 +314,7 @@
           "summary": {
             "title": "one sentence",
             "type": "string",
-            "maxLength": 500
+            "maxLength": 520
           },
           "run": {
             "type": "object",
